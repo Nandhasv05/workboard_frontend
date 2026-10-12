@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { 
   Bold, Italic, List, ListOrdered, Link as LinkIcon, Image as ImageIcon, Plus, 
   AtSign, HelpCircle, ChevronDown, Check, X, FileText, ExternalLink,
-  Code, Quote, Minus, Table, Edit3, Eye, CheckSquare
+  Code, Quote, Minus, Table, Edit3, Eye, CheckSquare, AlignLeft
 } from 'lucide-react';
 
 interface DescriptionEditorProps {
@@ -514,7 +514,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 font-bold text-gray-900 text-sm">
-          <FileText size={16} className="text-gray-500" />
+          <AlignLeft size={18} className="text-gray-700" />
           <span>Description</span>
         </div>
 

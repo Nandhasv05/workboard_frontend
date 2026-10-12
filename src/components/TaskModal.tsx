@@ -5,7 +5,7 @@ import {
   Clock, Edit3, ChevronDown, ExternalLink, AtSign, Download,
   Eye, CheckCircle2, AlertCircle, FileText, RotateCcw, Bell,
   Sparkles, MapPin, Image as ImageIcon, Layers,
-  ArrowRight, Copy, Settings, Minus, ArrowUpDown
+  ArrowRight, Copy, Settings, Minus, ArrowUpDown, AlignLeft, Layout
 } from 'lucide-react';
 import { api } from '../api';
 import { DatePickerPopover } from './DatePickerPopover';
@@ -79,6 +79,8 @@ export default function TaskModal({
   const [customFields, setCustomFields] = useState<CustomFieldsData>({});
   const [location, setLocation] = useState<string | null>(null);
   const [isTemplate, setIsTemplate] = useState(false);
+  const [showCoverPopover, setShowCoverPopover] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Checklist Item Assign & Due Date
   const [checklistItemAssignee, setChecklistItemAssignee] = useState<{ [checklistId: string]: any }>({});
@@ -287,6 +289,29 @@ export default function TaskModal({
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  const PRESET_COVERS = [
+    {
+      name: 'City Night (Kuala Lumpur)',
+      url: 'https://images.unsplash.com/photo-1519501025264-65ba15a82390?auto=format&fit=crop&w=1200&q=80',
+      bgColor: '#0052cc'
+    },
+    {
+      name: 'Ocean Coast',
+      url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1200&q=80',
+      bgColor: '#0284c7'
+    },
+    {
+      name: 'Forest Nature',
+      url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=1200&q=80',
+      bgColor: '#15803d'
+    },
+    {
+      name: 'Modern Dark',
+      url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80',
+      bgColor: '#18181b'
+    }
+  ];
+
   const availableColors = [
     { name: 'Green', bg: '#4bce97', text: '#091e42' },
     { name: 'Yellow', bg: '#f5cd47', text: '#091e42' },
@@ -299,6 +324,30 @@ export default function TaskModal({
     { name: 'Pink', bg: '#e774bb', text: '#ffffff' },
     { name: 'Slate', bg: '#8590a2', text: '#ffffff' },
   ];
+
+  const formatRelativeTime = (dateStr: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      const now = new Date();
+      const diffSec = Math.round((now.getTime() - date.getTime()) / 1000);
+      
+      if (Math.abs(diffSec) < 60) return 'just now';
+      if (diffSec < 0 && Math.abs(diffSec) < 3600) return `in ${Math.round(Math.abs(diffSec) / 60)} minutes`;
+      if (diffSec > 0 && diffSec < 3600) {
+        const mins = Math.floor(diffSec / 60);
+        return `${mins} ${mins === 1 ? 'minute' : 'minutes'} ago`;
+      }
+      if (diffSec > 0 && diffSec < 86400) {
+        const hours = Math.floor(diffSec / 3600);
+        return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+      }
+      if (diffSec > 0 && diffSec < 172800) return 'yesterday';
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
 
   const [portalUsers, setPortalUsers] = useState<any[]>([]);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
@@ -486,6 +535,43 @@ export default function TaskModal({
     const nextTmpl = !isTemplate;
     setIsTemplate(nextTmpl);
     await saveTaskWithFields(descText, customFields, location, undefined, nextTmpl);
+  };
+
+  const handleCreateCardFromTemplate = async () => {
+    if (!task) return;
+    try {
+      const targetCol = columns.find(c => c.id === (task.column_id || task.columnId)) || columns[0];
+      const { data } = await api.post('/tasks', {
+        title: `${task.title} (Copy)`,
+        boardId: task.board_id, 
+        // columnId: targetCol.id,
+        projectId: task.project_id,
+        description: descText,
+        priority: task.priority || 'medium',
+        labels: task.labels ? (typeof task.labels === 'string' ? task.labels : task.labels.map((l: any) => l.name || l).join(',')) : ''
+      });
+      if (data?.task?.id) {
+        setAutomationToast(`✓ Created card from template!`);
+        setTimeout(() => setAutomationToast(null), 3000);
+        onTaskUpdated?.();
+      }
+    } catch (err) {
+      console.error('Failed to create card from template', err);
+    }
+  };
+
+  const handleSelectCover = async (coverUrl: string, bgColor?: string) => {
+    const nextFields = { ...customFields, cover_image_url: coverUrl, cover_bg_color: bgColor };
+    setCustomFields(nextFields);
+    await saveTaskWithFields(descText, nextFields, location);
+    setShowCoverPopover(false);
+  };
+
+  const handleRemoveCover = async () => {
+    const nextFields = { ...customFields, cover_image_url: '', cover_bg_color: '' };
+    setCustomFields(nextFields);
+    await saveTaskWithFields(descText, nextFields, location);
+    setShowCoverPopover(false);
   };
 
   if (!taskId) return null;
@@ -1035,26 +1121,34 @@ export default function TaskModal({
           </div>
         ) : (
           <>
-            {/* Top Header Bar */}
-            <div className="px-6 py-3.5 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 shrink-0">
-              
-              {/* Left Column Selector or Read-Only Badge */}
-              <div className="flex items-center gap-2.5">
-                {readOnly ? (
-                  <div className="inline-flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200 px-3 py-1.5 rounded-lg text-xs font-bold shadow-2xs">
-                    <Eye size={14} className="text-amber-600" />
-                    <span>Public View (Read-Only)</span>
-                    <span className="text-gray-400 font-normal">| {currentCol.name}</span>
-                  </div>
-                ) : (
+            {/* Top Cover Banner (Full Size Cover Banner) */}
+            {(customFields.cover_image_url || task.cover_image_url || customFields.cover_bg_color) ? (
+              <div 
+                className="relative w-full h-44 sm:h-52 overflow-hidden shrink-0 select-none bg-gray-900"
+                style={{ backgroundColor: customFields.cover_bg_color || '#0052cc' }}
+              >
+                {(customFields.cover_image_url || task.cover_image_url) && (
+                  <img 
+                    src={customFields.cover_image_url || task.cover_image_url} 
+                    alt="Card cover" 
+                    className="w-full h-full object-cover object-center transition-all" 
+                  />
+                )}
+                
+                {/* Top-left List Pill over cover */}
+                <div className="absolute top-3 left-4 z-20">
                   <div className="relative">
                     <button 
+                      type="button"
                       onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-                      className="flex items-center gap-2 bg-white hover:bg-gray-100 text-gray-800 px-3 py-1.5 rounded-lg text-xs font-semibold tracking-wide border border-gray-300 shadow-2xs transition-colors cursor-pointer"
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer shadow-sm backdrop-blur-xs"
+                      style={{
+                        backgroundColor: '#fef08a',
+                        color: '#713f12'
+                      }}
                     >
-                      <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: currentCol.color || '#0052cc' }}></span>
                       <span>{currentCol.name}</span>
-                      <ChevronDown size={14} className="text-gray-500" />
+                      <ChevronDown size={13} className="text-[#854d0e]" />
                     </button>
 
                     {showColumnDropdown && (
@@ -1063,6 +1157,7 @@ export default function TaskModal({
                         {columns.map(col => (
                           <button
                             key={col.id}
+                            type="button"
                             onClick={() => handleMoveColumn(col.id)}
                             className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer ${col.id === task.column_id ? 'text-blue-600 font-bold' : 'text-gray-700'}`}
                           >
@@ -1076,69 +1171,283 @@ export default function TaskModal({
                       </div>
                     )}
                   </div>
-                )}
+                </div>
 
-                {saveSuccessMsg && (
-                  <span className="text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md animate-in fade-in flex items-center gap-1">
-                    <CheckCircle2 size={13} /> Saved!
-                  </span>
-                )}
-              </div>
+                {/* Top-right Action Icons over cover: [ImageIcon] [...] [X] */}
+                <div className="absolute top-3 right-4 z-20 flex items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={() => setShowCoverPopover(!showCoverPopover)}
+                    className="p-1.5 bg-white/90 hover:bg-white text-gray-800 rounded-full transition-colors cursor-pointer shadow-sm"
+                    title="Change card cover"
+                  >
+                    <ImageIcon size={15} />
+                  </button>
 
-              {/* Right Action Buttons */}
-              <div className="flex items-center gap-2">
-                {!readOnly && (
-                  <>
+                  <div className="relative">
                     <button 
                       type="button"
-                      onClick={handleSaveAll}
-                      disabled={isSavingAll}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-all cursor-pointer shadow-xs disabled:opacity-50"
-                      title="Save all changes to this card"
+                      onClick={() => setShowMoreMenu(!showMoreMenu)}
+                      className="p-1.5 bg-white/90 hover:bg-white text-gray-800 rounded-full transition-colors cursor-pointer shadow-sm"
+                      title="More actions"
                     >
-                      <Check size={14} />
-                      <span>{isSavingAll ? 'Saving...' : 'Save'}</span>
+                      <MoreHorizontal size={15} />
                     </button>
+                    {showMoreMenu && (
+                      <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-40 animate-in fade-in zoom-in-95">
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); handleToggleTemplate(); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Layers size={14} className="text-blue-600" />
+                          <span>{isTemplate ? 'Turn off Template' : 'Make this card a template'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); handleCreateCardFromTemplate(); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Copy size={14} className="text-gray-600" />
+                          <span>Create card from template</span>
+                        </button>
+                        <div className="my-1 border-t border-gray-100"></div>
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); setShowDeleteConfirm(true); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Trash2 size={14} />
+                          <span>Delete card</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
+                  <button 
+                    type="button"
+                    onClick={onClose} 
+                    className="p-1.5 bg-white/90 hover:bg-white text-gray-800 rounded-full transition-colors cursor-pointer shadow-sm" 
+                    title="Close card"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Clean Top Header when NO Cover (Matching Screenshot 2) */
+              <div className="px-6 py-3.5 flex items-center justify-between border-b border-gray-100 bg-white shrink-0 select-none">
+                {/* Left Column Pill */}
+                <div className="relative">
+                  <button 
+                    type="button"
+                    onClick={() => setShowColumnDropdown(!showColumnDropdown)}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    style={{
+                      backgroundColor: currentCol.name.toLowerCase().includes('doing') || currentCol.name.toLowerCase().includes('in progress')
+                        ? '#dcfce7' 
+                        : currentCol.name.toLowerCase().includes('to-do') || currentCol.name.toLowerCase().includes('to do')
+                        ? '#fef08a'
+                        : '#f3f4f6',
+                      color: currentCol.name.toLowerCase().includes('doing') || currentCol.name.toLowerCase().includes('in progress')
+                        ? '#166534'
+                        : currentCol.name.toLowerCase().includes('to-do') || currentCol.name.toLowerCase().includes('to do')
+                        ? '#713f12'
+                        : '#1f2937'
+                    }}
+                  >
+                    <span>{currentCol.name}</span>
+                    <ChevronDown size={13} className="opacity-80" />
+                  </button>
+
+                  {showColumnDropdown && (
+                    <div className="absolute left-0 mt-2 w-52 bg-white border border-gray-200 rounded-xl shadow-xl py-1 z-30 animate-in fade-in zoom-in-95">
+                      <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Move to List</div>
+                      {columns.map(col => (
+                        <button
+                          key={col.id}
+                          type="button"
+                          onClick={() => handleMoveColumn(col.id)}
+                          className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-blue-50 transition-colors cursor-pointer ${col.id === task.column_id ? 'text-blue-600 font-bold' : 'text-gray-700'}`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: col.color || '#0052cc' }}></span>
+                            {col.name}
+                          </span>
+                          {col.id === task.column_id && <Check size={14} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Action Icons: [ImageIcon] [...] [X] (Matching Screenshot 2) */}
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    type="button"
+                    onClick={() => setShowCoverPopover(!showCoverPopover)}
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors cursor-pointer"
+                    title="Change card cover"
+                  >
+                    <ImageIcon size={16} />
+                  </button>
+
+                  <div className="relative">
                     <button 
                       type="button"
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:text-white hover:bg-red-600 bg-red-50 border border-red-200 transition-all cursor-pointer shadow-2xs mr-1"
-                      title="Delete this card"
+                      onClick={() => setShowMoreMenu(!showMoreMenu)}
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors cursor-pointer"
+                      title="More actions"
                     >
-                      <Trash2 size={14} />
-                      <span>Delete Card</span>
+                      <MoreHorizontal size={16} />
                     </button>
-                  </>
-                )}
+                    {showMoreMenu && (
+                      <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-gray-200 rounded-xl shadow-xl py-1.5 z-40 animate-in fade-in zoom-in-95">
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); handleToggleTemplate(); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Layers size={14} className="text-blue-600" />
+                          <span>{isTemplate ? 'Turn off Template' : 'Make this card a template'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); handleCreateCardFromTemplate(); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Copy size={14} className="text-gray-600" />
+                          <span>Create card from template</span>
+                        </button>
+                        <div className="my-1 border-t border-gray-100"></div>
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); setShowDeleteConfirm(true); }}
+                          className="w-full text-left px-3.5 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
+                        >
+                          <Trash2 size={14} />
+                          <span>Delete card</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
-                <button 
-                  onClick={onClose} 
-                  className="p-1.5 text-gray-500 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors cursor-pointer" 
-                  title="Close modal"
-                >
-                  <X size={18} />
-                </button>
+                  <button 
+                    type="button"
+                    onClick={onClose} 
+                    className="p-1.5 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100 transition-colors cursor-pointer" 
+                    title="Close card"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Cover Image Banner (if set) */}
-            {(customFields.cover_image_url || task.cover_image_url) && (
-              <div className="relative w-full h-44 bg-gray-100 overflow-hidden shrink-0 border-b border-gray-200">
-                <img 
-                  src={customFields.cover_image_url || task.cover_image_url} 
-                  alt="Card cover" 
-                  className="w-full h-full object-cover" 
-                />
-                {!readOnly && (
+            {/* Cover Popover */}
+            {showCoverPopover && (
+              <div className="absolute right-12 top-14 w-72 bg-white border border-gray-200 rounded-2xl shadow-2xl p-4 z-50 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between pb-2.5 border-b border-gray-100 mb-3">
+                  <span className="text-xs font-bold text-gray-800">Card Cover</span>
+                  <button onClick={() => setShowCoverPopover(false)} className="text-gray-400 hover:text-gray-600 p-1">
+                    <X size={14} />
+                  </button>
+                </div>
+                
+                {/* Upload Custom Cover */}
+                <div className="mb-3">
+                  <label className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors border border-gray-200 shadow-2xs">
+                    <Paperclip size={13} className="text-gray-600" />
+                    <span>Upload cover image</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        try {
+                          const res = await api.post(`/tasks/${taskId}/attachments`, formData, {
+                            headers: { 'Content-Type': 'multipart/form-data' }
+                          });
+                          const uploadedUrl = res.data?.attachment?.url || res.data?.url;
+                          if (uploadedUrl) {
+                            handleSelectCover(uploadedUrl, '#18181b');
+                          }
+                        } catch (err) {
+                          console.error('Failed to upload cover image', err);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Preset Photos</div>
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  {PRESET_COVERS.map((cov, idx) => (
+                    <div 
+                      key={idx}
+                      onClick={() => handleSelectCover(cov.url, cov.bgColor)}
+                      className="h-16 rounded-lg overflow-hidden border border-gray-200 hover:border-blue-500 cursor-pointer relative group shadow-2xs"
+                      title={cov.name}
+                    >
+                      <img src={cov.url} alt={cov.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[9px] px-1 rounded truncate max-w-[90%]">
+                        {cov.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Preset Colors</div>
+                <div className="grid grid-cols-4 gap-1.5 mb-3">
+                  {['#0052cc', '#16a34a', '#ea580c', '#dc2626', '#7c3aed', '#ec4899', '#0891b2', '#4b5563'].map((clr, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => handleSelectCover('', clr)}
+                      style={{ backgroundColor: clr }}
+                      className="h-7 rounded-md cursor-pointer hover:opacity-85 transition-opacity"
+                    />
+                  ))}
+                </div>
+
+                {(customFields.cover_image_url || task.cover_image_url) && (
                   <button
                     type="button"
-                    onClick={() => handleToggleCover(customFields.cover_image_url || task.cover_image_url)}
-                    className="absolute bottom-3 right-3 bg-black/60 hover:bg-black/80 text-white text-xs font-semibold px-3 py-1.5 rounded-lg backdrop-blur-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-sm"
+                    onClick={handleRemoveCover}
+                    className="w-full py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200 cursor-pointer"
                   >
-                    <X size={13} /> Remove Cover
+                    Remove Cover
                   </button>
                 )}
+              </div>
+            )}
+
+            {/* Template Card Banner (Matching Screenshot 3) */}
+            {isTemplate && (
+              <div className="bg-[#f4f8fd] border-b border-[#d0e4ff] px-6 py-3.5 flex items-center justify-between gap-4 shrink-0 select-none">
+                <div className="flex items-center gap-3">
+                  {/* Trello template card icon matching screenshot 3 */}
+                  <div className="w-9 h-6 rounded-md border-2 border-dashed border-[#0055cc] bg-white shadow-2xs flex flex-col justify-between p-1 shrink-0">
+                    <div className="w-full h-1 bg-[#0055cc]/50 rounded-xs"></div>
+                    <div className="flex gap-1">
+                      <div className="w-2.5 h-1 bg-[#0055cc]/30 rounded-xs"></div>
+                      <div className="w-3.5 h-1 bg-[#0055cc]/30 rounded-xs"></div>
+                    </div>
+                  </div>
+                  <span className="font-bold text-gray-900 text-sm tracking-tight">This is a Template card.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCreateCardFromTemplate}
+                  className="bg-[#0055cc] hover:bg-[#0047b3] text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+                >
+                  <Layers size={14} />
+                  <span>Create card from template</span>
+                </button>
               </div>
             )}
 
@@ -1148,36 +1457,23 @@ export default function TaskModal({
               {/* Left Column (Main Card Details) */}
               <div className="md:col-span-7 flex flex-col gap-6">
                 
-                {/* Title Section */}
+                {/* Title Section matching Screenshot 2 & 3 */}
                 <div className="flex items-start gap-3">
-                  <div className="mt-1 text-gray-400">
-                    <CheckSquare size={20} />
+                  <div className="mt-1 text-gray-700">
+                    {isTemplate ? (
+                      <Layout size={20} className="text-gray-800" />
+                    ) : (
+                      <div className="w-4 h-4 rounded-full border-2 border-gray-400 mt-1 cursor-pointer hover:border-blue-600" />
+                    )}
                   </div>
                   <div className="flex-1">
-                    {isTemplate && (
-                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#e9f2ff] text-[#0055cc] border border-[#d0e4ff] text-xs font-semibold mb-2.5 shadow-2xs">
-                        <Layers size={13} className="text-[#0055cc]" />
-                        <span>This card is a template.</span>
-                        {!readOnly && (
-                          <button 
-                            type="button" 
-                            onClick={handleToggleTemplate}
-                            className="text-[11px] text-[#0055cc] hover:underline ml-1 cursor-pointer font-normal"
-                          >
-                            (Turn off)
-                          </button>
-                        )}
-                      </div>
-                    )}
                     {!readOnly && isEditingTitle ? (
-                      <div className="flex flex-col gap-2 p-3 bg-blue-50/40 rounded-xl border-2 border-blue-500 shadow-sm">
-                        <div className="text-[11px] font-bold text-blue-700 uppercase tracking-wider flex items-center gap-1">
-                          <Edit3 size={12} /> Edit Card Title
-                        </div>
+                      <div className="flex flex-col gap-2 p-2 bg-blue-50/30 rounded-xl border-2 border-blue-500 shadow-xs">
                         <textarea
                           autoFocus
                           value={titleText}
                           onChange={e => setTitleText(e.target.value)}
+                          onBlur={handleSaveTitle}
                           onKeyDown={e => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                               e.preventDefault();
@@ -1187,45 +1483,19 @@ export default function TaskModal({
                               setIsEditingTitle(false);
                             }
                           }}
-                          className="w-full bg-white border border-gray-300 rounded-lg p-2.5 text-gray-900 font-bold text-lg focus:outline-none focus:border-blue-600 resize-none shadow-xs"
-                          rows={2}
+                          className="w-full bg-white border border-gray-300 rounded-lg p-2 text-gray-900 font-bold text-xl focus:outline-none focus:border-blue-600 resize-none shadow-xs"
+                          rows={1}
                           placeholder="Card title..."
                         />
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <button 
-                              type="button"
-                              onClick={handleSaveTitle} 
-                              className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-semibold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                            >
-                              <Check size={14} /> Save Title
-                            </button>
-                            <button 
-                              type="button" 
-                              onClick={() => { setTitleText(task.title); setIsEditingTitle(false); }} 
-                              className="hover:bg-gray-200 text-gray-600 border border-gray-300 bg-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                          <span className="text-[11px] text-gray-400 italic hidden sm:inline">Press Enter to save</span>
-                        </div>
                       </div>
                     ) : (
-                      <div 
+                      <h2 
                         onClick={() => { if (!readOnly) setIsEditingTitle(true); }}
-                        className={`group flex items-center justify-between p-2.5 -m-1 rounded-xl transition-all border border-transparent ${!readOnly ? 'cursor-pointer hover:bg-gray-100/80 hover:border-gray-200' : ''}`}
+                        className={`text-xl font-bold text-gray-900 tracking-tight leading-snug ${!readOnly ? 'cursor-pointer hover:bg-gray-100/70 p-1 -m-1 rounded-md transition-colors' : ''}`}
                         title={!readOnly ? "Click to edit card title" : undefined}
                       >
-                        <h2 className="text-xl font-bold text-gray-900 tracking-tight leading-snug">
-                          {task.title}
-                        </h2>
-                        {!readOnly && (
-                          <span className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 text-xs text-blue-600 font-bold px-2.5 py-1 rounded-md bg-blue-50 border border-blue-200 ml-2 shrink-0 transition-opacity">
-                            <Edit3 size={13} /> Edit
-                          </span>
-                        )}
-                      </div>
+                        {task.title}
+                      </h2>
                     )}
                   </div>
                 </div>
@@ -2168,9 +2438,9 @@ export default function TaskModal({
                   <button 
                     type="button"
                     onClick={() => setShowActivityDetails(!showActivityDetails)}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium px-2.5 py-1 rounded-md transition-colors cursor-pointer border border-transparent shadow-2xs"
                   >
-                    {showActivityDetails ? 'Hide activity' : 'Show activity'}
+                    {showActivityDetails ? 'Hide details' : 'Show details'}
                   </button>
                 </div>
 
@@ -2213,13 +2483,19 @@ export default function TaskModal({
                   {/* Real Comments */}
                   {task.comments?.map((comment: any) => (
                     <div key={comment.id} className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shrink-0 ring-2 ring-gray-100">
+                      <div className="w-8 h-8 rounded-full bg-[#00875a] text-white font-bold flex items-center justify-center text-xs shrink-0 select-none shadow-2xs">
                         {(comment.user_name || 'U').charAt(0).toUpperCase()}
                       </div>
                       <div className="flex flex-col gap-1 flex-1">
                         <div className="flex items-center gap-2 text-xs">
                           <span className="font-bold text-gray-900">{comment.user_name || 'Team Member'}</span>
-                          <span className="text-gray-400 text-[11px]">{new Date(comment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <a 
+                            href="#" 
+                            onClick={e => e.preventDefault()} 
+                            className="text-[#0052cc] hover:underline text-[11px] font-medium cursor-pointer"
+                          >
+                            {formatRelativeTime(comment.created_at)}
+                          </a>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 text-xs text-gray-800 leading-relaxed shadow-2xs">
                           {renderFormattedText(comment.body)}
@@ -2229,19 +2505,23 @@ export default function TaskModal({
                   ))}
 
                   {/* Real Activities Stream from Database */}
-                  {showActivityDetails && (task.activities || []).map((act: any) => (
-                    <div key={act.id} className="flex items-start gap-3 opacity-85">
-                      <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-200 text-gray-600 font-bold flex items-center justify-center text-xs shrink-0">
-                        <Clock size={13} className="text-gray-500" />
+                  {(task.activities || []).map((act: any, actIdx: number) => (
+                    <div key={act.id || actIdx} className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-[#00875a] text-white font-bold flex items-center justify-center text-xs shrink-0 select-none shadow-2xs">
+                        {(act.user_name || 'U').charAt(0).toUpperCase()}
                       </div>
                       <div className="flex flex-col text-xs flex-1">
                         <div>
                           <span className="font-bold text-gray-900">{act.user_name || 'Member'}</span>{' '}
-                          <span className="text-gray-600">{act.action}</span>
+                          <span className="text-gray-700">{act.action}</span>
                         </div>
-                        <span className="text-gray-400 text-[11px] mt-0.5">
-                          {new Date(act.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                        <a 
+                          href="#" 
+                          onClick={e => e.preventDefault()} 
+                          className="text-[#0052cc] hover:underline text-[11px] mt-0.5 inline-block font-medium cursor-pointer"
+                        >
+                          {formatRelativeTime(act.created_at)}
+                        </a>
                       </div>
                     </div>
                   ))}
@@ -2258,136 +2538,113 @@ export default function TaskModal({
 
             </div>
 
-            {/* Clean Modal Footer (Removed Power-ups, Automations, Comments buttons) */}
-            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                {!readOnly && (
-                  <span>Tip: Paste screenshots directly (`Ctrl+V`) into description or card.</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {!readOnly && (
-                  <button 
-                    type="button" 
-                    onClick={handleSaveAll}
-                    disabled={isSavingAll}
-                    className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-bold px-4 py-1.5 rounded-lg text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    {isSavingAll ? 'Saving...' : 'Save All Changes'}
-                  </button>
-                )}
-                <button 
-                  type="button" 
-                  onClick={onClose}
-                  className="bg-white hover:bg-gray-100 text-gray-700 font-semibold px-4 py-1.5 rounded-lg text-xs border border-gray-300 transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-
-              {/* Bottom Floating Bar: [Power-ups] [Automations] [Comments] (Matching Image 2 & 3) */}
-              <div className="relative border-t border-gray-100 bg-white/95 px-6 py-2.5 flex items-center justify-center shrink-0">
-                <div className="relative flex items-center gap-1 bg-white border border-gray-200/90 shadow-md rounded-2xl p-1 select-none">
-                  
-                  {/* Power-ups Button */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveBottomTab('powerups');
-                        setShowPowerUpsPopover(!showPowerUpsPopover);
-                        setShowAutomationPopover(false);
-                      }}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeBottomTab === 'powerups' && showPowerUpsPopover
-                          ? 'text-blue-600 bg-blue-50/80'
-                          : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Plug size={15} />
-                      <span>Power-ups</span>
-                    </button>
-
-                    <CardPowerUpsPopover
-                      isOpen={showPowerUpsPopover}
-                      onClose={() => setShowPowerUpsPopover(false)}
-                      hasCustomFields={hasCustomFields}
-                      onEnableCustomFields={() => {
-                        setHasCustomFields(true);
-                        setShowPowerUpsPopover(false);
-                      }}
-                    />
-                  </div>
-
-                  {/* Automations Button with Popover */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveBottomTab('automations');
-                        setShowAutomationPopover(!showAutomationPopover);
-                        setShowPowerUpsPopover(false);
-                      }}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeBottomTab === 'automations'
-                          ? 'text-blue-600 bg-blue-50/80 relative after:content-[""] after:absolute after:bottom-0.5 after:left-3 after:right-3 after:h-0.5 after:bg-blue-600 after:rounded-full'
-                          : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                    >
-                      <Zap size={15} />
-                      <span>Automations</span>
-                    </button>
-
-                    <CardAutomationPopover
-                      isOpen={showAutomationPopover}
-                      onClose={() => setShowAutomationPopover(false)}
-                      columns={columns}
-                      boardName={task?.board_name || 'test'}
-                      labels={task?.labels || []}
-                      card={task}
-                      automationButtons={automationButtons}
-                      onOpenAutomationDirectory={onOpenAutomationDirectory}
-                      onAddButton={(btn) => {
-                        saveAutomationButtons([...automationButtons, btn]);
-                        setAutomationToast(`✓ Added button "${btn.title}"`);
-                        setTimeout(() => setAutomationToast(null), 2500);
-                      }}
-                      onDeleteButton={(id) => {
-                        saveAutomationButtons(automationButtons.filter(b => b.id !== id));
-                      }}
-                      onExecuteButton={handleExecuteAutomation}
-                    />
-                  </div>
-
-                  {/* Comments Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveBottomTab('comments');
-                      setShowAutomationPopover(false);
-                      setShowPowerUpsPopover(false);
-                      commentsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
-                    }}
-                    className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeBottomTab === 'comments'
-                        ? 'text-blue-600 bg-blue-50/80 relative after:content-[""] after:absolute after:bottom-0.5 after:left-3 after:right-3 after:h-0.5 after:bg-blue-600 after:rounded-full'
-                        : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
-                    }`}
-                  >
-                    <MessageSquare size={15} />
-                    <span>Comments</span>
-                  </button>
-                </div>
-
-                {/* Automation Toast Feedback */}
-                {automationToast && (
-                  <div className="absolute right-6 bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-md animate-in fade-in duration-200">
-                    {automationToast}
-                  </div>
-                )}
-              </div>
-            </div>
           </>
+        )}
+      </div>
+
+      {/* Floating Pill Dock Bar: [Power-ups | Automations | Comments] (Matching Screenshot 2 & 3) */}
+      <div 
+        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-60 pointer-events-auto select-none" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="relative flex items-center gap-1 bg-white border border-gray-200/90 shadow-xl rounded-2xl p-1">
+          {/* Power-ups Button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveBottomTab('powerups');
+                setShowPowerUpsPopover(!showPowerUpsPopover);
+                setShowAutomationPopover(false);
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeBottomTab === 'powerups' && showPowerUpsPopover
+                  ? 'text-blue-600 bg-blue-50/80'
+                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Plug size={15} />
+              <span>Power-ups</span>
+            </button>
+
+            <CardPowerUpsPopover
+              isOpen={showPowerUpsPopover}
+              onClose={() => setShowPowerUpsPopover(false)}
+              hasCustomFields={hasCustomFields}
+              onEnableCustomFields={() => {
+                setHasCustomFields(true);
+                setShowPowerUpsPopover(false);
+              }}
+            />
+          </div>
+
+          {/* Automations Button with Popover */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setActiveBottomTab('automations');
+                setShowAutomationPopover(!showAutomationPopover);
+                setShowPowerUpsPopover(false);
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeBottomTab === 'automations'
+                  ? 'text-blue-600 bg-blue-50/80 relative after:content-[""] after:absolute after:bottom-0.5 after:left-3 after:right-3 after:h-0.5 after:bg-blue-600 after:rounded-full'
+                  : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Zap size={15} />
+              <span>Automations</span>
+            </button>
+
+            <CardAutomationPopover
+              isOpen={showAutomationPopover}
+              onClose={() => setShowAutomationPopover(false)}
+              columns={columns}
+              boardName={task?.board_name || 'test'}
+              labels={task?.labels || []}
+              card={task}
+              automationButtons={automationButtons}
+              onOpenAutomationDirectory={onOpenAutomationDirectory}
+              onAddButton={(btn) => {
+                saveAutomationButtons([...automationButtons, btn]);
+                setAutomationToast(`✓ Added button "${btn.title}"`);
+                setTimeout(() => setAutomationToast(null), 2500);
+              }}
+              onDeleteButton={(id) => {
+                saveAutomationButtons(automationButtons.filter(b => b.id !== id));
+              }}
+              onExecuteButton={handleExecuteAutomation}
+            />
+          </div>
+
+          <div className="h-4 w-px bg-gray-200 mx-0.5"></div>
+
+          {/* Comments Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveBottomTab('comments');
+              setShowAutomationPopover(false);
+              setShowPowerUpsPopover(false);
+              commentsSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeBottomTab === 'comments'
+                ? 'text-blue-600 bg-blue-50/80 relative after:content-[""] after:absolute after:bottom-0.5 after:left-3 after:right-3 after:h-0.5 after:bg-blue-600 after:rounded-full'
+                : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'
+            }`}
+          >
+            <MessageSquare size={15} />
+            <span>Comments</span>
+          </button>
+        </div>
+
+        {/* Automation Toast Feedback */}
+        {automationToast && (
+          <div className="absolute right-0 top-[-40px] bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-md animate-in fade-in duration-200 whitespace-nowrap">
+            {automationToast}
+          </div>
         )}
       </div>
 
