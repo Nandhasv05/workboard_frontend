@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, Filter, Plus, ChevronDown, Check, CheckSquare, Square, 
-  Calendar, AlertCircle, Clock, ExternalLink, Trash2, ArrowUpDown,
-  Tag, User, Eye, X
+  Calendar, Clock, ExternalLink, X
 } from 'lucide-react';
+import type { PortalUser } from '../utils/members';
 
 interface Task {
   id: string;
@@ -29,7 +29,7 @@ interface BoardTableViewProps {
   tasks: Task[];
   totalTasksCount?: number;
   columns: Column[];
-  portalUsers?: { id: string; name: string; email?: string }[];
+  portalUsers?: PortalUser[];
   onSelectTask: (taskId: string) => void;
   onMoveTask: (taskId: string, targetColId: string) => void;
   onToggleComplete?: (taskId: string) => void;
@@ -154,13 +154,13 @@ export const BoardTableView: React.FC<BoardTableViewProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col p-5 max-w-7xl mx-auto w-full pb-24 overflow-hidden">
+    <div className="flex-1 flex flex-col p-3 sm:p-5 max-w-7xl mx-auto w-full pb-24 overflow-hidden">
       {/* Table Toolbar */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-3 sm:p-4 mb-3 sm:mb-4 flex items-center justify-between flex-wrap gap-2.5 sm:gap-3">
         {/* Search & Filters */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap w-full sm:w-auto">
           {/* Search box */}
-          <div className="relative w-64">
+          <div className="relative w-full sm:w-64">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"

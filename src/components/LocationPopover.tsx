@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronLeft, X, Search, MapPin, ExternalLink, Check } from 'lucide-react';
+import { ChevronLeft, X, MapPin, Check } from 'lucide-react';
 
 interface LocationPopoverProps {
   currentLocation?: string | null;

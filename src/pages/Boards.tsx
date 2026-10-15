@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../api';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
-  Plus, Clock, Layout, Users, Settings, X, Check, 
-  Sparkles, Trello, Layers, Pipette, Palette, Lock, Globe,
-  Key, RefreshCw, Copy, CheckCircle2, Search, ArrowRight, Briefcase
+  Plus, Layout, Users, X, Check, 
+  Sparkles, Trello, Pipette, Palette, Lock, Globe,
+  Key, RefreshCw, Copy, CheckCircle2, Search, ArrowRight, Briefcase, LayoutGrid, List
 } from 'lucide-react';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 
 export default function Boards() {
   const navigate = useNavigate();
@@ -14,6 +15,12 @@ export default function Boards() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [boardView, setBoardView] = useState<'grid' | 'list'>(() => localStorage.getItem('boards_view') === 'list' ? 'list' : 'grid');
+
+  const changeBoardView = (view: 'grid' | 'list') => {
+    setBoardView(view);
+    localStorage.setItem('boards_view', view);
+  };
   
   // Create Board Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -32,7 +39,7 @@ export default function Boards() {
 
   // Members Modal State
   const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
-  const [portalUsers, setPortalUsers] = useState<any[]>([]);
+  const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
 
   const generatePasscode = () => {
@@ -249,12 +256,7 @@ export default function Boards() {
 
   const activeBg = getActiveBackground();
 
-  const filteredMembers = portalUsers.filter(u => 
-    !memberSearch || 
-    u.name?.toLowerCase().includes(memberSearch.toLowerCase()) || 
-    u.email?.toLowerCase().includes(memberSearch.toLowerCase()) ||
-    u.role?.toLowerCase().includes(memberSearch.toLowerCase())
-  );
+  const filteredMembers = filterMembers(portalUsers, memberSearch);
 
   if (loading) {
     return (
@@ -269,27 +271,27 @@ export default function Boards() {
   }
 
   return (
-    <div className="flex-1 bg-[#f4f5f7] text-[#172b4d] p-6 lg:p-10 select-none">
-      <div className="max-w-6xl mx-auto flex flex-col gap-9">
+    <div className="flex-1 bg-[#f4f5f7] text-[#172b4d] p-3 sm:p-6 lg:p-10 select-none">
+      <div className="max-w-6xl mx-auto flex flex-col gap-6 sm:gap-9">
 
         {/* Top Hero Banner */}
         {!bannerDismissed && (
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col md:flex-row items-center justify-between p-8 relative overflow-hidden">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm flex flex-col md:flex-row items-center justify-between p-4 sm:p-6 md:p-8 relative overflow-hidden">
             <div className="flex-1 max-w-xl z-10">
               <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 uppercase tracking-wider mb-2">
                 <Sparkles size={15} /> GET STARTED WITH WORKBOARD
               </div>
-              <h2 className="text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight">
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-gray-900 tracking-tight">
                 Organize anything together
               </h2>
-              <p className="text-gray-600 text-sm mt-2 leading-relaxed">
+              <p className="text-gray-600 text-xs sm:text-sm mt-2 leading-relaxed">
                 Create public or private boards with automated passcodes, customizable themes, and pre-built enterprise templates like HR and Sprint delivery!
               </p>
               
-              <div className="mt-6 flex items-center gap-4">
+              <div className="mt-5 sm:mt-6 flex flex-wrap items-center gap-3 sm:gap-4">
                 <button 
                   onClick={openNewBlankModal}
-                  className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-bold px-5 py-2.5 rounded-lg text-sm transition-all shadow-sm active:scale-95 flex items-center gap-2"
+                  className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm transition-all shadow-sm active:scale-95 flex items-center gap-2"
                 >
                   <Plus size={16} /> Create a Board
                 </button>
@@ -303,7 +305,7 @@ export default function Boards() {
             </div>
 
             {/* Illustration decoration */}
-            <div className="mt-6 md:mt-0 w-64 h-36 bg-gradient-to-tr from-[#9f3e82] via-[#652865] to-[#0052cc] rounded-xl p-3 shadow-lg flex flex-col justify-between border border-white/20 rotate-1 shrink-0">
+            <div className="mt-6 md:mt-0 w-full max-w-[260px] md:w-64 h-36 bg-gradient-to-tr from-[#9f3e82] via-[#652865] to-[#0052cc] rounded-xl p-3 shadow-lg flex flex-col justify-between border border-white/20 rotate-1 shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-red-400"></div>
                 <div className="w-2.5 h-2.5 rounded-full bg-yellow-400"></div>
@@ -374,18 +376,6 @@ export default function Boards() {
         {/* YOUR WORKSPACES & BOARDS */}
         <section className="flex flex-col gap-5 pt-2">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-gray-200">
-            {/* Workspace Title & Badge */}
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#0052cc] to-[#0065ff] text-white font-extrabold flex items-center justify-center text-lg shadow-sm">
-                E
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900 text-base">evolv Project Workspace</h3>
-                <span className="text-xs text-gray-500">CLIENT_API_LIVE Database &bull; 15 Portal Users</span>
-              </div>
-            </div>
-
-            {/* Action buttons `[Boards] [Members] [Settings]` */}
             <div className="flex items-center gap-2">
               <button 
                 onClick={() => {}}
@@ -400,9 +390,67 @@ export default function Boards() {
                 <Users size={14} className="text-emerald-600" /> Members ({portalUsers.length})
               </button>
             </div>
+
+            <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 self-start sm:self-auto">
+              {([['grid', LayoutGrid, 'Grid'], ['list', List, 'List']] as const).map(([view, Icon, label]) => (
+                <button
+                  key={view}
+                  type="button"
+                  onClick={() => changeBoardView(view)}
+                  title={`${label} view`}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors cursor-pointer ${boardView === view ? 'bg-white text-blue-600 shadow-2xs font-bold' : 'hover:text-gray-900'}`}
+                >
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Boards Grid */}
+          {boardView === 'list' ? (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 shadow-xs">
+              {boards.map((board, idx) => {
+                const bg = getBoardBg(board, idx);
+                const isPrivate = board.visibility === 'private';
+                const updated = board.updated_at ? new Date(board.updated_at) : null;
+
+                return (
+                  <Link
+                    key={board.id}
+                    to={`/boards/${board.id}`}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+                  >
+                    <span style={bg.style} className={`w-12 h-8 rounded-md shrink-0 shadow-2xs ${bg.className}`} />
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-semibold text-sm text-gray-900 truncate group-hover:text-blue-700">{board.name}</span>
+                      {board.project_name && <span className="block text-xs text-gray-500 truncate">{board.project_name}</span>}
+                    </span>
+                    {isPrivate ? (
+                      <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shrink-0">
+                        <Lock size={10} /> Private
+                      </span>
+                    ) : (
+                      <span className="bg-gray-50 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 shrink-0">
+                        <Globe size={10} /> Public
+                      </span>
+                    )}
+                    {updated && !isNaN(updated.getTime()) && (
+                      <span className="hidden sm:block text-xs text-gray-500 w-32 text-right shrink-0">
+                        Updated {updated.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    )}
+                    <ArrowRight size={14} className="text-gray-400 group-hover:text-blue-600 shrink-0" />
+                  </Link>
+                );
+              })}
+              <button
+                type="button"
+                onClick={openNewBlankModal}
+                className="w-full flex items-center gap-2 px-4 py-3 text-xs font-bold text-gray-600 hover:text-blue-600 hover:bg-gray-50 transition-colors cursor-pointer"
+              >
+                <Plus size={16} /> Create new board
+              </button>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             
             {/* Real boards */}
@@ -433,7 +481,7 @@ export default function Boards() {
                   </div>
                   
                   <div className="flex items-center justify-between text-xs text-white/85">
-                    <span className="truncate">{board.project_name || 'evolv Project Workspace'}</span>
+                    <span className="truncate">{board.project_name}</span>
                     <Layout size={14} />
                   </div>
                 </Link>
@@ -451,6 +499,7 @@ export default function Boards() {
             </div>
 
           </div>
+          )}
         </section>
 
       </div>
@@ -498,10 +547,6 @@ export default function Boards() {
                         <Globe size={10} /> Public (Open)
                       </span>
                     )}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs text-white/90">
-                    <span className="w-2 h-2 rounded-full bg-white shadow-xs"></span>
-                    <span>evolv Project Workspace</span>
                   </div>
                 </div>
               </div>
@@ -815,7 +860,7 @@ export default function Boards() {
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input 
                   type="text" 
-                  placeholder="Search members by name, email, or role..." 
+                  placeholder="Search by name, username, emp code, department, email, or role..." 
                   value={memberSearch}
                   onChange={e => setMemberSearch(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-xs text-gray-900 outline-none focus:ring-1 focus:ring-blue-600"
@@ -829,9 +874,9 @@ export default function Boards() {
                       <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-xs uppercase">
                         {(user.name || 'U').charAt(0)}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-xs font-bold text-gray-900">{user.name}</div>
-                        <div className="text-[11px] text-gray-500">{user.email}</div>
+                        <div className="text-[11px] text-gray-500 truncate">{memberSubtitle(user)}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

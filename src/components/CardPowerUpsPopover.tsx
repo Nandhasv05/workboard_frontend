@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Plug, Check, Sparkles, Sliders, Clock, ThumbsUp, Layers } from 'lucide-react';
+import { X, Plug, Sliders, Clock, ThumbsUp } from 'lucide-react';
 
 interface CardPowerUpsPopoverProps {
   isOpen: boolean;

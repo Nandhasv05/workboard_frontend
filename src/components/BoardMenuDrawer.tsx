@@ -3,8 +3,7 @@ import {
   X, ChevronLeft, UserPlus, Info, Lock, Globe, Share2, Star, 
   Settings, Sliders, Zap, Plug, Tag, Smile, CopyPlus, History, 
   Archive, Eye, ChevronsLeftRight, Copy, Mail, Minus, Flag,
-  Check, Printer, Download, Plus, Trash2, RotateCcw, AlertTriangle,
-  ExternalLink, Sparkles
+  Check, Printer, Download, Trash2, RotateCcw, AlertTriangle
 } from 'lucide-react';
 import { api } from '../api';
 import { useNavigate } from 'react-router-dom';
@@ -40,7 +39,6 @@ interface BoardMenuDrawerProps {
   onOpenShare: () => void;
   isStarred: boolean;
   onToggleStar: () => void;
-  onRefreshBoard?: () => void;
   onRestoreTask?: (taskId: string) => void;
   onOpenAutomation?: () => void;
 }
@@ -75,7 +73,6 @@ export const BoardMenuDrawer: React.FC<BoardMenuDrawerProps> = ({
   onOpenShare,
   isStarred,
   onToggleStar,
-  onRefreshBoard,
   onRestoreTask,
   onOpenAutomation
 }) => {
@@ -185,7 +182,7 @@ export const BoardMenuDrawer: React.FC<BoardMenuDrawerProps> = ({
         showToast('Board copied successfully!', 'success');
         setTimeout(() => {
           onClose();
-          navigate(`/board/${res.data.board.id}`);
+          navigate(`/boards/${res.data.board.id}`);
         }, 600);
       }
     } catch (err: any) {

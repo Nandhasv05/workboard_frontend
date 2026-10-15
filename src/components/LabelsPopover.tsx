@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  X, ChevronLeft, Search, Check, Edit2, Plus, Sparkles, Trash2 
+  X, ChevronLeft, Check, Edit2, Trash2 
 } from 'lucide-react';
 
 export interface LabelItem {

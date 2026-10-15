@@ -20,10 +20,8 @@ export const LIST_COLORS: ListColor[] = [
 ];
 
 interface ListActionsPopoverProps {
-  columnId: string;
   columnName: string;
   currentColor?: string | null;
-  cardCount: number;
   onAddCard: () => void;
   onCopyList: () => void;
   onMoveList: () => void;
@@ -37,10 +35,8 @@ interface ListActionsPopoverProps {
 }
 
 export const ListActionsPopover: React.FC<ListActionsPopoverProps> = ({
-  columnId,
   columnName,
   currentColor,
-  cardCount,
   onAddCard,
   onCopyList,
   onMoveList,

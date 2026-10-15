@@ -1,13 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Bold, Italic, List, ListOrdered, Link as LinkIcon, Image as ImageIcon, Plus, 
-  AtSign, HelpCircle, ChevronDown, Check, X, FileText, ExternalLink,
+  AtSign, HelpCircle, ChevronDown, X, ExternalLink,
   Code, Quote, Minus, Table, Edit3, Eye, CheckSquare, AlignLeft
 } from 'lucide-react';
+import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 
 interface DescriptionEditorProps {
   initialValue: string;
-  portalUsers?: { id: string; name: string; email?: string }[];
+  portalUsers?: PortalUser[];
   onSave: (newDesc: string) => void;
   onCancel?: () => void;
   readOnly?: boolean;
@@ -446,7 +447,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     setMentionQuery(null);
   };
 
-  const handleSelectMention = (user: { name: string }) => {
+  const handleSelectMention = (user: PortalUser) => {
     const el = textareaRef.current;
     if (!el) return;
     const cursorPos = el.selectionStart;
@@ -455,12 +456,13 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
     const lastAtIndex = textBefore.lastIndexOf('@');
 
     if (lastAtIndex !== -1) {
-      const nextVal = `${textBefore.slice(0, lastAtIndex)}@${user.name} ${textAfter}`;
+      const handle = user.username || user.name;
+      const nextVal = `${textBefore.slice(0, lastAtIndex)}@${handle} ${textAfter}`;
       setValue(nextVal);
       setMentionQuery(null);
       setTimeout(() => {
         el.focus();
-        el.setSelectionRange(lastAtIndex + user.name.length + 2, lastAtIndex + user.name.length + 2);
+        el.setSelectionRange(lastAtIndex + handle.length + 2, lastAtIndex + handle.length + 2);
       }, 20);
     }
   };
@@ -832,8 +834,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                       <AtSign size={11} /> Mention Member
                     </div>
                     <div className="max-h-44 overflow-y-auto">
-                      {portalUsers
-                        .filter(u => !mentionQuery || (u.name && u.name.toLowerCase().includes(mentionQuery)) || (u.email && u.email.toLowerCase().includes(mentionQuery)))
+                      {filterMembers(portalUsers, mentionQuery)
                         .slice(0, 8)
                         .map(u => (
                           <button
@@ -847,7 +848,7 @@ export const DescriptionEditor: React.FC<DescriptionEditorProps> = ({
                             </div>
                             <div className="truncate">
                               <div className="font-semibold">{u.name}</div>
-                              <div className="text-[10px] text-gray-400 truncate">{u.email}</div>
+                              <div className="text-[10px] text-gray-400 truncate">{memberSubtitle(u)}</div>
                             </div>
                           </button>
                         ))}

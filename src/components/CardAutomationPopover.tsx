@@ -38,8 +38,6 @@ interface CardAutomationPopoverProps {
   onClose: () => void;
   columns: { id: string; name: string }[];
   boardName?: string;
-  labels?: { name: string; color?: string }[];
-  card: any;
   automationButtons: CardAutomationButton[];
   onAddButton: (button: CardAutomationButton) => void;
   onDeleteButton: (buttonId: string) => void;
@@ -83,8 +81,6 @@ export const CardAutomationPopover: React.FC<CardAutomationPopoverProps> = ({
   onClose,
   columns,
   boardName = 'test',
-  labels = [],
-  card,
   automationButtons,
   onAddButton,
   onDeleteButton,
@@ -438,7 +434,7 @@ export const CardAutomationPopover: React.FC<CardAutomationPopoverProps> = ({
 
             {/* List of Action Cards (Can be multiple as in Screenshot 4) */}
             <div className="flex flex-col gap-2.5">
-              {actionsList.map((action, idx) => (
+              {actionsList.map(action => (
                 <div 
                   key={action.id}
                   className="p-3 bg-white border border-gray-200 rounded-xl shadow-2xs flex flex-col gap-2.5 text-xs text-gray-800"

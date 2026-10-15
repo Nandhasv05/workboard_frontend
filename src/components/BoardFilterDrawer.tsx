@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { 
-  X, Search, User, Clock, Calendar, Tag, ChevronDown, Check, 
-  AlertCircle, CheckCircle2
-} from 'lucide-react';
+import { X, Search, User, Clock, Calendar, Tag, ChevronDown, Check } from 'lucide-react';
+import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 
 export interface BoardFilterState {
   keyword: string;
@@ -74,7 +72,7 @@ interface BoardFilterDrawerProps {
   filters: BoardFilterState;
   onChange: (newFilters: BoardFilterState) => void;
   onClear: () => void;
-  portalUsers?: { id: string; name: string; email?: string }[];
+  portalUsers?: PortalUser[];
   currentUserId?: string;
   totalCardsCount?: number;
   filteredCardsCount?: number;
@@ -100,7 +98,25 @@ export const BoardFilterDrawer: React.FC<BoardFilterDrawerProps> = ({
   totalCardsCount = 0,
   filteredCardsCount = 0
 }) => {
+  const [showMemberPicker, setShowMemberPicker] = useState(false);
+  const [memberSearch, setMemberSearch] = useState('');
+
   if (!isOpen) return null;
+
+  const selectedUserIds = filters.members.selectedUserIds;
+  const pickableMembers = filterMembers(portalUsers.filter(u => u.id !== currentUserId), memberSearch);
+
+  const handleToggleMember = (userId: string) => {
+    onChange({
+      ...filters,
+      members: {
+        ...filters.members,
+        selectedUserIds: selectedUserIds.includes(userId)
+          ? selectedUserIds.filter(id => id !== userId)
+          : [...selectedUserIds, userId]
+      }
+    });
+  };
 
   const handleToggleColor = (color: string) => {
     const exists = filters.labels.selectedColors.includes(color);
@@ -232,6 +248,60 @@ export const BoardFilterDrawer: React.FC<BoardFilterDrawerProps> = ({
               </div>
               <span className="text-xs font-medium">Cards assigned to me</span>
             </label>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMemberPicker(!showMemberPicker)}
+                className="w-full flex items-center justify-between gap-2 bg-white border border-[#091e4224] hover:border-[#0c66e4] rounded-md px-3 py-1.5 text-xs text-[#172b4d] transition-colors cursor-pointer"
+              >
+                <span className={selectedUserIds.length ? 'font-semibold' : 'text-[#626f86]'}>
+                  {selectedUserIds.length ? `${selectedUserIds.length} member${selectedUserIds.length > 1 ? 's' : ''} selected` : 'Select members'}
+                </span>
+                <ChevronDown size={14} className="text-[#626f86]" />
+              </button>
+
+              {showMemberPicker && (
+                <div className="mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                  <div className="p-2 border-b border-gray-100 relative">
+                    <Search size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Search members..."
+                      value={memberSearch}
+                      onChange={e => setMemberSearch(e.target.value)}
+                      className="w-full pl-7 pr-2 py-1.5 bg-gray-50 border border-gray-200 focus:border-[#0c66e4] rounded-md text-xs outline-none"
+                    />
+                  </div>
+                  <div className="max-h-56 overflow-y-auto py-1">
+                    {pickableMembers.map(u => {
+                      const checked = selectedUserIds.includes(u.id);
+                      return (
+                        <label key={u.id} className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[#091e420f]">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => handleToggleMember(u.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-0 cursor-pointer"
+                          />
+                          <div className="w-5 h-5 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] shrink-0 uppercase">
+                            {(u.name || 'U').charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium truncate">{u.name}</div>
+                            <div className="text-[10px] text-[#626f86] truncate">{memberSubtitle(u)}</div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                    {pickableMembers.length === 0 && (
+                      <div className="px-3 py-3 text-center text-[11px] text-[#626f86]">No members found.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* 3. Card status */}

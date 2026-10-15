@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { api } from './api';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { api, isLocalDev, redirectToPortalLogin } from './api';
+import { hashRouting, portalLauncherUrl, routerBasename } from './utils/routing';
 import AppLayout from './layouts/AppLayout';
-import Dashboard from './pages/Dashboard';
-import Projects from './pages/Projects';
 import Boards from './pages/Boards';
 import Board from './pages/Board';
 
@@ -15,19 +14,21 @@ function App() {
 
   useEffect(() => {
     async function initPortalAuth() {
+      const params = new URLSearchParams(window.location.search);
+      const devUser = isLocalDev ? params.get('portal_user') || params.get('username') || params.get('user') || 'nandhakumar' : null;
+      const username = (window as any).__PORTAL_USER__ || devUser;
+      if (!username) {
+        window.location.replace(portalLauncherUrl());
+        return;
+      }
       try {
-        const params = new URLSearchParams(window.location.search);
-        const userParam = params.get('portal_user') || params.get('username') || params.get('user');
-        const username = userParam || localStorage.getItem('portal_user') || 'admin';
-        
-        localStorage.setItem('portal_user', username);
-
         const { data: authData } = await api.post('/auth/portal-session', { username });
         api.defaults.headers.common['Authorization'] = `Bearer ${authData.token}`;
         localStorage.setItem('currentUser', JSON.stringify(authData.user));
         setAuthenticated(true);
       } catch (err) {
         console.error('Portal Auth failed', err);
+        redirectToPortalLogin();
       } finally {
         setLoading(false);
       }
@@ -56,21 +57,20 @@ function App() {
     );
   }
 
-  return (
-    <BrowserRouter basename={typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : '/'}>
-      <Routes>
-        <Route path="/" element={<AppLayout />}>
-          <Route index element={<Boards />} />
-          <Route path="boards" element={<Boards />} />
-          <Route path="boards/:id" element={<Board />} />
-          <Route path="projects" element={<Projects />} />
-          <Route path="projects/:id/board" element={<Board />} />
-          <Route path="dashboard" element={<Dashboard />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+  const routes = (
+    <Routes>
+      <Route path="/" element={<AppLayout />}>
+        <Route index element={<Boards />} />
+        <Route path="boards" element={<Boards />} />
+        <Route path="boards/:id" element={<Board />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
+
+  return hashRouting
+    ? <HashRouter>{routes}</HashRouter>
+    : <BrowserRouter basename={routerBasename}>{routes}</BrowserRouter>;
 }
 
 export default App;

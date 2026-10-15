@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { 
-  X, Zap, ChevronRight, Plus, Trash2, Check, CheckCircle2, 
+  X, Zap, ChevronRight, Plus, Trash2, CheckCircle2, 
   ArrowRight, Clock, CheckSquare, MessageSquare, Sliders, 
-  Info, Tag, User, Layers, ArrowUpDown, Filter, BookOpen, 
-  Shield, Edit2, Copy, Lightbulb, Clipboard, History, Calendar,
+  Info, Tag, User, Layers, ArrowUpDown, Filter,
+  Edit2, Copy, Lightbulb, Clipboard, History, Calendar,
   Briefcase, Hash, AlertTriangle, GitBranch, Archive,
   Settings, Bot, Rocket, Wand2, Bell, RefreshCw, Link2, Eye,
   HelpCircle, BellOff, Hammer, Heart, ThumbsUp, ThumbsDown,
@@ -31,8 +31,6 @@ interface AutomationModalProps {
   isOpen: boolean;
   onClose: () => void;
   columns: { id: string; name: string }[];
-  boardName?: string;
-  currentUserName?: string;
   onRuleExecuted?: (msg: string) => void;
 }
 
@@ -105,8 +103,6 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
   isOpen,
   onClose,
   columns,
-  boardName = 'Current Board',
-  currentUserName = 'Me',
   onRuleExecuted
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('rules');
@@ -193,11 +189,8 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
   // Config parameters in Trigger view
   const [trigListName, setTrigListName] = useState(columns[0]?.name || 'To Do');
   const [trigActor, setTrigActor] = useState<'me' | 'anyone'>('me');
-  const [trigCardCount, setTrigCardCount] = useState(1);
-
   // Scheduled automation state (Screenshots 4 & 5)
   const [schedTrigger, setSchedTrigger] = useState<string | null>(null);
-  const [schedActions, setSchedActions] = useState<string[]>([]);
   const [schedActionCat, setSchedActionCat] = useState<ActionCategory>('add_card');
   const [schedCardTitle, setSchedCardTitle] = useState('New task');
   const [schedTargetList, setSchedTargetList] = useState(columns[0]?.name || 'To Do');
@@ -415,7 +408,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
 
   // Activity Logs State (Matching Screenshot 1)
   const [activityFilterWarnings, setActivityFilterWarnings] = useState(false);
-  const [activityLogs, setActivityLogs] = useState<{
+  const [activityLogs] = useState<{
     id: string;
     timestamp: string;
     message: string;
@@ -529,22 +522,22 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
         </div>
 
         {/* ================= MODAL BODY: SIDEBAR + MAIN AREA ================= */}
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
           
-          {/* LEFT SIDEBAR (Matching Image 1 & 2) */}
-          <aside className="w-56 bg-[#f7f8f9] border-r border-gray-200 p-3 flex flex-col justify-between shrink-0 select-none">
-            <div className="space-y-4">
+          {/* LEFT SIDEBAR (Responsive on mobile: horizontal scroll strip) */}
+          <aside className="w-full md:w-56 bg-[#f7f8f9] border-b md:border-b-0 md:border-r border-gray-200 p-2 sm:p-3 flex md:flex-col justify-between shrink-0 select-none overflow-x-auto no-scrollbar">
+            <div className="flex md:flex-col items-center md:items-stretch gap-3 md:gap-4 md:space-y-4 shrink-0">
               
               {/* Category 1: Automations */}
               <div>
-                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
+                <span className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
                   Automations
                 </span>
-                <div className="space-y-0.5">
+                <div className="flex md:flex-col gap-1 md:space-y-0.5">
                   <button
                     type="button"
                     onClick={() => { setActiveTab('rules'); setIsCreatingRule(false); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'rules' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -553,7 +546,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('scheduled'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'scheduled' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -562,7 +555,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('due_date'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'due_date' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -573,14 +566,14 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
 
               {/* Category 2: Custom buttons */}
               <div>
-                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
-                  Custom buttons
+                <span className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
+                  Buttons
                 </span>
-                <div className="space-y-0.5">
+                <div className="flex md:flex-col gap-1 md:space-y-0.5">
                   <button
                     type="button"
                     onClick={() => { setActiveTab('card_buttons'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'card_buttons' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -589,7 +582,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('board_buttons'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'board_buttons' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -597,16 +590,17 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
                   </button>
                 </div>
               </div>
+
               {/* Category 4: More */}
               <div>
-                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
+                <span className="text-[10px] sm:text-[11px] font-bold text-gray-500 uppercase tracking-wider px-2 block mb-1">
                   More
                 </span>
-                <div className="space-y-0.5">
+                <div className="flex md:flex-col gap-1 md:space-y-0.5">
                   <button
                     type="button"
                     onClick={() => { setActiveTab('suggestions'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'suggestions' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -615,7 +609,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
                   <button
                     type="button"
                     onClick={() => { setActiveTab('activity'); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
+                    className={`whitespace-nowrap flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold text-left transition-colors cursor-pointer ${
                       activeTab === 'activity' ? 'bg-[#e9f2ff] text-[#0c66e4]' : 'text-gray-700 hover:bg-gray-200/60'
                     }`}
                   >
@@ -627,7 +621,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
             </div>
 
             {/* Sidebar Bottom Links */}
-            <div className="space-y-1 pt-3 border-t border-gray-200/80 text-[11px] text-gray-500">
+            <div className="hidden md:block space-y-1 pt-3 border-t border-gray-200/80 text-[11px] text-gray-500">
               <span className="px-2 py-0.5 block hover:text-gray-800 cursor-pointer">Reports</span>
               <span className="px-2 py-0.5 block hover:text-gray-800 cursor-pointer">Send feedback</span>
               <span className="px-2 py-0.5 block hover:text-gray-800 cursor-pointer">Help</span>
@@ -635,7 +629,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
           </aside>
 
           {/* MAIN CONTENT AREA */}
-          <main className="flex-1 overflow-y-auto p-6 bg-white">
+          <main className="flex-1 overflow-y-auto p-4 sm:p-6 bg-white">
             
             {/* ================= TAB: RULES (Matching Screenshot 3) ================= */}
             {activeTab === 'rules' && !isCreatingRule && (
@@ -1135,7 +1129,7 @@ export const AutomationModal: React.FC<AutomationModalProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => { setSchedTrigger(null); setSchedActions([]); }}
+                      onClick={() => { setSchedTrigger(null); }}
                       className="px-3 py-1.5 border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-xs font-semibold cursor-pointer"
                     >
                       Cancel

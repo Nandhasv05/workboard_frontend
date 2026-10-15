@@ -36,8 +36,7 @@ export function logAutomationActivity(ruleText: string, message = 'The automatio
 export async function executeCardActionString(
   actionStr: string,
   card: any,
-  columns: { id: string; name: string }[],
-  currentUserName = 'Me'
+  columns: { id: string; name: string }[]
 ): Promise<string | null> {
   const lower = actionStr.toLowerCase();
 
@@ -91,37 +90,53 @@ export async function executeCardActionString(
   const addLabelMatch = actionStr.match(/add (?:the )?["']?([^"']+)["']? label/i);
   if (addLabelMatch && addLabelMatch[1]) {
     const labelToAdd = addLabelMatch[1].trim();
-    const existingLabels = card.labels ? card.labels.split(',').map((l: string) => l.trim()) : [];
-    if (!existingLabels.includes(labelToAdd)) {
-      const newLabels = [...existingLabels, labelToAdd].join(',');
+    let existingLabels: string[] = [];
+    if (Array.isArray(card.labels)) {
+      existingLabels = card.labels.map((l: any) => typeof l === 'string' ? l : (l.name || ''));
+    } else if (typeof card.labels === 'string' && card.labels) {
+      existingLabels = card.labels.split(',').map((l: string) => l.trim());
+    }
+    if (!existingLabels.some(l => l.toLowerCase() === labelToAdd.toLowerCase())) {
+      const newLabels = [...existingLabels, labelToAdd];
       await api.put(`/tasks/${card.id}`, { labels: newLabels });
       return `Added label "${labelToAdd}"`;
     }
+    return `Label "${labelToAdd}" already added`;
   }
 
   // 7. Remove label
   const removeLabelMatch = actionStr.match(/remove (?:the )?["']?([^"']+)["']? label/i);
   if (removeLabelMatch && removeLabelMatch[1]) {
     const labelToRemove = removeLabelMatch[1].trim().toLowerCase();
-    const existingLabels = card.labels ? card.labels.split(',').map((l: string) => l.trim()) : [];
-    const filtered = existingLabels.filter((l: string) => l.toLowerCase() !== labelToRemove).join(',');
+    let existingLabels: string[] = [];
+    if (Array.isArray(card.labels)) {
+      existingLabels = card.labels.map((l: any) => typeof l === 'string' ? l : (l.name || ''));
+    } else if (typeof card.labels === 'string' && card.labels) {
+      existingLabels = card.labels.split(',').map((l: string) => l.trim());
+    }
+    const filtered = existingLabels.filter((l: string) => l.toLowerCase() !== labelToRemove);
     await api.put(`/tasks/${card.id}`, { labels: filtered });
     return `Removed label "${removeLabelMatch[1]}"`;
   }
 
   // 8. Join card / Add member
-  if (lower.includes('join the card') || lower.includes('join card')) {
-    const existingAssignees = card.assignee_ids ? card.assignee_ids.split(',').map((a: string) => a.trim()) : [];
-    if (!existingAssignees.includes(currentUserName)) {
-      const newAssignees = [...existingAssignees, currentUserName].join(',');
-      await api.put(`/tasks/${card.id}`, { assignee_ids: newAssignees });
-      return `Joined card`;
-    }
+  if (
+    lower.includes('join the card') || 
+    lower.includes('join card') || 
+    lower.includes('add a member') || 
+    lower.includes('add member') || 
+    lower.includes('assign to me')
+  ) {
+    const storedUser = localStorage.getItem('currentUser');
+    const u = storedUser ? JSON.parse(storedUser) : null;
+    const uid = u?.id || '1';
+    await api.put(`/tasks/${card.id}`, { assigneeIds: [uid] });
+    return `Assigned ${u?.name || 'member'} to card`;
   }
 
   // 9. Remove all members from the card
   if (lower.includes('remove all members')) {
-    await api.put(`/tasks/${card.id}`, { assignee_ids: '' });
+    await api.put(`/tasks/${card.id}`, { assigneeIds: [] });
     return `Removed all members`;
   }
 
@@ -158,7 +173,6 @@ export async function triggerBoardRulesForEvent(
     card: any;
     fromColumn?: { id: string; name: string };
     toColumn?: { id: string; name: string };
-    currentUserName?: string;
   },
   columns: { id: string; name: string }[]
 ): Promise<string[]> {
@@ -204,7 +218,7 @@ export async function triggerBoardRulesForEvent(
       if (shouldRun) {
         const actionList: string[] = rule.actions?.map((a: any) => a.desc || a.type) || [];
         for (const act of actionList) {
-          const res = await executeCardActionString(act, payload.card, columns, payload.currentUserName || 'Me');
+          const res = await executeCardActionString(act, payload.card, columns);
           if (res) executedReports.push(res);
         }
         logAutomationActivity(rule.title || rule.trigger?.desc || 'Rule executed', 'Rule automation executed:');
@@ -230,13 +244,12 @@ export async function runCardButton(
     actions: string[];
   },
   card: any,
-  columns: { id: string; name: string }[],
-  currentUserName = 'Me'
+  columns: { id: string; name: string }[]
 ): Promise<{ success: boolean; executed: string[]; closeCard: boolean }> {
   const executed: string[] = [];
 
   for (const act of button.actions) {
-    const res = await executeCardActionString(act, card, columns, currentUserName);
+    const res = await executeCardActionString(act, card, columns);
     if (res) executed.push(res);
   }
 
@@ -249,149 +262,6 @@ export async function runCardButton(
     success: true,
     executed,
     closeCard: Boolean(button.closeCard)
-  };
-}
-
-/**
- * Execute a Board Button across the board
- */
-export async function runBoardButton(
-  button: {
-    id: string;
-    title: string;
-    icon: string;
-    enabled: boolean;
-    actions: string[];
-  },
-  boardId: string,
-  projectId: string,
-  columns: { id: string; name: string }[],
-  tasks: any[],
-  currentUserName = 'Me'
-): Promise<{ success: boolean; executed: string[] }> {
-  const executed: string[] = [];
-
-  for (const act of button.actions) {
-    const lower = act.toLowerCase();
-
-    // 1. Create a card with title "X" in list "Y"
-    const createMatch = act.match(/create a (?:new |unique )?card with title ["']([^"']+)["'] in list ["']([^"']+)["']/i);
-    if (createMatch && createMatch[1] && createMatch[2]) {
-      const cardTitle = createMatch[1];
-      const targetColName = createMatch[2];
-      const targetCol = columns.find(c => c.name.toLowerCase() === targetColName.toLowerCase()) || columns[0];
-      if (targetCol) {
-        if (lower.includes('unique')) {
-          const exists = tasks.some(t => t.columnId === targetCol.id && t.title.toLowerCase() === cardTitle.toLowerCase());
-          if (exists) {
-            executed.push(`Skipped unique card "${cardTitle}" (already exists in ${targetCol.name})`);
-            continue;
-          }
-        }
-        await api.post('/tasks', {
-          boardId,
-          projectId,
-          columnId: targetCol.id,
-          title: cardTitle
-        });
-        executed.push(`Created card "${cardTitle}" in list "${targetCol.name}"`);
-        continue;
-      }
-    }
-
-    // 2. Find card "X" and copy it in list "Y"
-    const copyMatch = act.match(/find card ["']([^"']+)["'] and copy it in list ["']([^"']+)["']/i);
-    if (copyMatch && copyMatch[1] && copyMatch[2]) {
-      const srcTitle = copyMatch[1];
-      const targetColName = copyMatch[2];
-      const srcCard = tasks.find(t => t.title.toLowerCase().includes(srcTitle.toLowerCase()));
-      const targetCol = columns.find(c => c.name.toLowerCase() === targetColName.toLowerCase()) || columns[0];
-      if (srcCard && targetCol) {
-        await api.post('/tasks', {
-          boardId,
-          projectId,
-          columnId: targetCol.id,
-          title: `${srcCard.title} (Copy)`,
-          description: srcCard.description,
-          labels: srcCard.labels,
-          priority: srcCard.priority
-        });
-        executed.push(`Copied card "${srcCard.title}" to list "${targetCol.name}"`);
-        continue;
-      }
-    }
-
-    // 3. Archive all cards in list "X"
-    const archiveAllMatch = act.match(/archive all cards in list ["']([^"']+)["']/i);
-    if (archiveAllMatch && archiveAllMatch[1]) {
-      const colName = archiveAllMatch[1];
-      const targetCol = columns.find(c => c.name.toLowerCase() === colName.toLowerCase());
-      if (targetCol) {
-        const colTasks = tasks.filter(t => t.columnId === targetCol.id && !t.completed);
-        for (const t of colTasks) {
-          await api.put(`/tasks/${t.id}`, { completed: true });
-        }
-        executed.push(`Archived ${colTasks.length} cards in list "${targetCol.name}"`);
-        continue;
-      }
-    }
-
-    // 4. Move all cards in list "A" to list "B"
-    const moveAllMatch = act.match(/move all cards in list ["']([^"']+)["'] to (?:list )?["']([^"']+)["']/i);
-    if (moveAllMatch && moveAllMatch[1] && moveAllMatch[2]) {
-      const srcName = moveAllMatch[1];
-      const dstName = moveAllMatch[2];
-      const srcCol = columns.find(c => c.name.toLowerCase() === srcName.toLowerCase());
-      const dstCol = columns.find(c => c.name.toLowerCase() === dstName.toLowerCase());
-      if (srcCol && dstCol) {
-        const toMove = tasks.filter(t => t.columnId === srcCol.id && !t.completed);
-        for (const t of toMove) {
-          await api.put(`/tasks/${t.id}`, { columnId: dstCol.id });
-        }
-        executed.push(`Moved ${toMove.length} cards from "${srcCol.name}" to "${dstCol.name}"`);
-        continue;
-      }
-    }
-
-    // 5. Move N random cards from list "A" to list "B"
-    const randomMatch = act.match(/move (\d+) random cards from list ["']([^"']+)["'] to list ["']([^"']+)["']/i);
-    if (randomMatch && randomMatch[1] && randomMatch[2] && randomMatch[3]) {
-      const count = parseInt(randomMatch[1], 10);
-      const srcName = randomMatch[2];
-      const dstName = randomMatch[3];
-      const srcCol = columns.find(c => c.name.toLowerCase() === srcName.toLowerCase());
-      const dstCol = columns.find(c => c.name.toLowerCase() === dstName.toLowerCase());
-      if (srcCol && dstCol) {
-        const available = tasks.filter(t => t.columnId === srcCol.id && !t.completed);
-        const shuffled = [...available].sort(() => 0.5 - Math.random()).slice(0, count);
-        for (const t of shuffled) {
-          await api.put(`/tasks/${t.id}`, { columnId: dstCol.id });
-        }
-        executed.push(`Moved ${shuffled.length} random cards from "${srcCol.name}" to "${dstCol.name}"`);
-        continue;
-      }
-    }
-
-    // 6. Sort cards in list "X" by custom field / due date / title
-    const sortMatch = act.match(/sort the cards in list ["']([^"']+)["'] by (?:custom field )?["']?([^"']+)["']? (ascending|descending)/i);
-    if (sortMatch && sortMatch[1]) {
-      const colName = sortMatch[1];
-      const targetCol = columns.find(c => c.name.toLowerCase() === colName.toLowerCase());
-      if (targetCol) {
-        executed.push(`Sorted list "${targetCol.name}" by ${sortMatch[2]} (${sortMatch[3]})`);
-        continue;
-      }
-    }
-  }
-
-  logAutomationActivity(
-    `${button.title}: ${button.actions.join(', ')}`,
-    `Board button "${button.title}" executed:`
-  );
-
-  return {
-    success: true,
-    executed
   };
 }
 

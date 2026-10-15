@@ -194,23 +194,23 @@ export default function CreateBoardModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={onClose}>
       <div 
-        className="bg-white text-gray-800 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8"
+        className="bg-white text-gray-800 w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto sm:my-8 max-h-[94vh] flex flex-col"
         onClick={e => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 flex items-center justify-between border-b border-gray-100 bg-gray-50 shrink-0">
           <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
             <Trello size={18} className="text-blue-600" />
             <span>Create board</span>
           </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1 rounded-md">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1 rounded-md cursor-pointer">
             <X size={18} />
           </button>
         </div>
 
-        <form onSubmit={handleCreate} className="p-6 flex flex-col gap-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
+        <form onSubmit={handleCreate} className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-5 overflow-y-auto custom-scrollbar flex-1">
           
           {/* Board Card Live Preview */}
           <div className="flex flex-col gap-2">
@@ -235,10 +235,6 @@ export default function CreateBoardModal({
                     <Globe size={10} /> Public (Open)
                   </span>
                 )}
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-white/90">
-                <span className="w-2 h-2 rounded-full bg-white shadow-xs"></span>
-                <span>evolv Project Workspace</span>
               </div>
             </div>
           </div>

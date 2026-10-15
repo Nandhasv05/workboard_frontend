@@ -1,23 +1,22 @@
 // AUTHOR : NANDHAKUMAR
 // DATE : 2026-10-07
 import React, { useState, useEffect, useRef } from 'react';
-import { Outlet, NavLink, Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Outlet, Link, useSearchParams } from 'react-router-dom';
 import {
-  Trello, Clock, Star, Users, Layout, Search, Plus,
-  Bell, ChevronDown, Sparkles, FolderKanban, Check, HelpCircle,
-  X, Briefcase, ExternalLink, CheckCheck, Lock, Globe
+  Trello, Clock, Star, Users, Search, Plus,
+  Bell, ChevronDown, Sparkles, X, CheckCheck
 } from 'lucide-react';
 import { api } from '../api';
 import CreateBoardModal, { TEMPLATES } from '../components/CreateBoardModal';
+import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 
 export default function AppLayout() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isFullscreen = searchParams.get('view') === 'fullscreen';
   const [showBoardsDropdown, setShowBoardsDropdown] = useState(false);
   const [showRecentDropdown, setShowRecentDropdown] = useState(false);
-  const [showStarredDropdown, setShowStarredDropdown] = useState(false);
   const [showMembersDropdown, setShowMembersDropdown] = useState(false);
+  const [memberSearch, setMemberSearch] = useState('');
   const [showTemplatesDropdown, setShowTemplatesDropdown] = useState(false);
   const [showNotificationsPopover, setShowNotificationsPopover] = useState(false);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
@@ -44,7 +43,7 @@ export default function AppLayout() {
       return { name: 'admin', role: 'admin' };
     }
   });
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<PortalUser[]>([]);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -54,7 +53,7 @@ export default function AppLayout() {
   // Notification State
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([
-    { id: '1', title: 'Welcome to evolv Project Workspace', time: 'Just now', type: 'system', read: false },
+    { id: '1', title: 'Welcome to WorkBoard', time: 'Just now', type: 'system', read: false },
     { id: '2', title: 'HR & Recruitment Board template is ready to use', time: '5m ago', type: 'board', read: false },
     { id: '3', title: 'Private boards now support dynamic access passcodes', time: '1h ago', type: 'security', read: false }
   ]);
@@ -100,7 +99,6 @@ export default function AppLayout() {
   const closeAllDropdowns = () => {
     setShowBoardsDropdown(false);
     setShowRecentDropdown(false);
-    setShowStarredDropdown(false);
     setShowMembersDropdown(false);
     setShowTemplatesDropdown(false);
     setShowNotificationsPopover(false);
@@ -118,7 +116,7 @@ export default function AppLayout() {
     localStorage.setItem('starred_board_ids', JSON.stringify(next));
   };
 
-  const starredBoards = boards.filter(b => starredIds.includes(b.id));
+  const filteredMembers = filterMembers(members, memberSearch);
 
   // Search Results
   const matchingBoards = boards.filter(b => 
@@ -162,13 +160,13 @@ export default function AppLayout() {
     <div className="flex flex-col min-h-screen bg-[#f4f5f7] text-[#172b4d] font-sans antialiased">
       
       {/* HEADER (Light Theme with exact user requested left-to-right items) */}
-      <header className="h-14 bg-white border-b border-gray-200 px-4 flex items-center justify-between z-30 shrink-0 shadow-xs">
+      <header className="h-14 bg-white border-b border-gray-200 px-2 sm:px-4 flex items-center justify-between z-30 shrink-0 shadow-xs">
         
         {/* Left Side: evolv Project logo, board, recent, starred, member, templates */}
-        <div className="flex items-center gap-1.5 md:gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2">
           
           {/* 1. WorkBoard Logo & Brand */}
-          <Link to="/boards" className="flex items-center gap-2 px-2 py-1 hover:bg-gray-100 rounded-lg transition-colors mr-2">
+          <Link to="/boards" className="flex items-center gap-2 px-1.5 sm:px-2 py-1 hover:bg-gray-100 rounded-lg transition-colors mr-0.5 sm:mr-2">
             <img 
               src="/evolv-logo.png" 
               alt="WorkBoard" 
@@ -190,15 +188,15 @@ export default function AppLayout() {
                 closeAllDropdowns();
                 setShowBoardsDropdown(next);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <Trello size={15} className="text-blue-600" />
-              <span>Board</span>
+              <span className="hidden sm:inline">Board</span>
               <ChevronDown size={13} className="text-gray-500" />
             </button>
 
             {showBoardsDropdown && (
-              <div className="absolute left-0 mt-1.5 w-64 bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute left-0 mt-1.5 w-64 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
                 <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
                   <span>Your Boards ({boards.length})</span>
                   <button onClick={openNewBoardModal} className="text-blue-600 hover:underline flex items-center gap-0.5 text-[10px] font-bold cursor-pointer">
@@ -250,15 +248,15 @@ export default function AppLayout() {
                 closeAllDropdowns();
                 setShowRecentDropdown(next);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <Clock size={15} className="text-amber-500" />
-              <span>Recent</span>
+              <span className="hidden sm:inline">Recent</span>
               <ChevronDown size={13} className="text-gray-500" />
             </button>
 
             {showRecentDropdown && (
-              <div className="absolute left-0 mt-1.5 w-64 bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute left-0 mt-1.5 w-64 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
                 <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider">Recently Viewed</div>
                 {boards.slice(0, 5).map(b => (
                   <Link
@@ -278,7 +276,65 @@ export default function AppLayout() {
             )}
           </div>
 
-          {/* 6. Templates dropdown */}
+          {/* 4. Members dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                const next = !showMembersDropdown;
+                closeAllDropdowns();
+                setShowMembersDropdown(next);
+              }}
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+            >
+              <Users size={15} className="text-emerald-600" />
+              <span className="hidden sm:inline">Members</span>
+              <ChevronDown size={13} className="text-gray-500" />
+            </button>
+
+            {showMembersDropdown && (
+              <div className="absolute left-0 mt-1.5 w-80 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
+                <div className="px-3 pb-2 border-b border-gray-100">
+                  <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                    Portal Users ({filteredMembers.length}{memberSearch ? ` of ${members.length}` : ''})
+                  </div>
+                  <div className="relative">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Search name, username, emp code, department..."
+                      value={memberSearch}
+                      onChange={e => setMemberSearch(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1.5 bg-gray-50 border border-gray-200 focus:border-blue-500 rounded-lg text-xs text-gray-800 outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="max-h-80 overflow-y-auto">
+                  {filteredMembers.map(m => (
+                    <div key={m.id} className="px-3 py-2 flex items-center gap-2.5 hover:bg-gray-50 transition-colors">
+                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs uppercase shrink-0">
+                        {(m.name || 'U').charAt(0)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-gray-800 truncate flex items-center gap-1.5">
+                          <span className="truncate">{m.name}</span>
+                          {m.id === currentUser?.id && (
+                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.2 rounded-full font-semibold shrink-0">You</span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-gray-500 truncate">{memberSubtitle(m)}</div>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredMembers.length === 0 && (
+                    <div className="px-3 py-4 text-center text-xs text-gray-400">No members found.</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 5. Templates dropdown */}
           <div className="relative">
             <button 
               onClick={() => {
@@ -286,15 +342,15 @@ export default function AppLayout() {
                 closeAllDropdowns();
                 setShowTemplatesDropdown(next);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
             >
               <Sparkles size={15} className="text-purple-600" />
-              <span>Templates</span>
+              <span className="hidden md:inline">Templates</span>
               <ChevronDown size={13} className="text-gray-500" />
             </button>
 
             {showTemplatesDropdown && (
-              <div className="absolute left-0 mt-1.5 w-80 bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute left-0 mt-1.5 w-80 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
                 <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
                   <span>Available Templates</span>
                   <span className="text-[10px] text-purple-600 font-semibold">Ready to Use</span>
@@ -331,7 +387,7 @@ export default function AppLayout() {
         </div>
 
         {/* Right Side: Search, Create button, Notification bell, Avatar */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3">
           
           {/* 7. Search option & Dropdown */}
           <div ref={searchContainerRef} className="relative hidden sm:block w-48 md:w-64">
@@ -419,10 +475,10 @@ export default function AppLayout() {
           <div className="relative">
             <button
               onClick={openNewBoardModal}
-              className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
+              className="bg-[#0052cc] hover:bg-[#0065ff] text-white font-bold px-2 sm:px-3.5 py-1.5 rounded-lg text-xs transition-colors flex items-center gap-1.5 shadow-xs active:scale-95 cursor-pointer"
             >
               <Plus size={15} />
-              <span>Create</span>
+              <span className="hidden sm:inline">Create</span>
             </button>
           </div>
 
@@ -434,7 +490,7 @@ export default function AppLayout() {
                 closeAllDropdowns();
                 setShowNotificationsPopover(next);
               }}
-              className="relative p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer" 
+              className="relative p-1.5 sm:p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer" 
               title="Notifications"
             >
               <Bell size={17} />
@@ -444,7 +500,7 @@ export default function AppLayout() {
             </button>
 
             {showNotificationsPopover && (
-              <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-xl shadow-2xl py-3 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-2xl py-3 z-50 animate-in fade-in zoom-in-95">
                 <div className="px-3 pb-2 border-b border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
                     <Bell size={14} className="text-blue-600" /> Notifications
@@ -500,21 +556,21 @@ export default function AppLayout() {
             </div>
 
             {showUserDropdown && (
-              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-50 animate-in fade-in zoom-in-95">
+              <div className="absolute right-0 mt-2 w-64 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-50 animate-in fade-in zoom-in-95">
                 <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
                   <div className="w-10 h-10 rounded-full bg-[#0052cc] text-white font-bold flex items-center justify-center text-sm uppercase">
                     {(currentUser?.name || 'A').charAt(0)}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-gray-900 truncate">{currentUser?.name || 'admin'}</p>
-                    <p className="text-xs text-gray-500 truncate">{currentUser?.email || 'admin@company.com'}</p>
+                    <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
                     <span className="inline-block mt-1 text-[10px] font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
                       {currentUser?.role || 'Admin'}
                     </span>
                   </div>
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-2 mt-1">
                   <a 
                     href="https://apps.evolvclothing.com/EVOL/"
                     className="w-full mt-1 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg flex items-center justify-between transition-colors"

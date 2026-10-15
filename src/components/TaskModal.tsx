@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  X, Check, CheckSquare, Square, Tag, Calendar, Paperclip, 
-  MessageSquare, User, MoreHorizontal, Image, Plus, Trash2, 
-  Clock, Edit3, ChevronDown, ExternalLink, AtSign, Download,
-  Eye, CheckCircle2, AlertCircle, FileText, RotateCcw, Bell,
+  X, Check, CheckSquare, Tag, Calendar, Paperclip, 
+  MessageSquare, User, MoreHorizontal, Plus, Trash2, 
+  Clock, ChevronDown, ExternalLink, AtSign, Download,
+  CheckCircle2, AlertCircle, FileText, RotateCcw, Bell,
   Sparkles, MapPin, Image as ImageIcon, Layers,
-  ArrowRight, Copy, Settings, Minus, ArrowUpDown, AlignLeft, Layout
+  ArrowRight, Copy, Settings, Minus, ArrowUpDown, Layout
 } from 'lucide-react';
 import { api } from '../api';
 import { DatePickerPopover } from './DatePickerPopover';
@@ -16,10 +16,13 @@ import { LocationPopover } from './LocationPopover';
 import { DescriptionEditor } from './DescriptionEditor';
 import { CustomFieldsSection, CustomFieldsData } from './CustomFieldsSection';
 import { LoadingSpinner } from './LoadingSpinner';
-import { CardAutomationPopover, CardAutomationButton } from './CardAutomationPopover';
+import { CardAutomationPopover } from './CardAutomationPopover';
 import { CardPowerUpsPopover } from './CardPowerUpsPopover';
 import { Plug, Zap } from 'lucide-react';
 import { runCardButton, triggerBoardRulesForEvent } from '../utils/automationEngine';
+import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
+
+const COVER_KEYS = ['cover_image_url', 'cover_bg_color'];
 
 interface TaskModalProps {
   taskId: string | null;
@@ -40,13 +43,10 @@ export default function TaskModal({
 }: TaskModalProps) {
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isSavingAll, setIsSavingAll] = useState(false);
-  const [saveSuccessMsg, setSaveSuccessMsg] = useState(false);
 
   // Title & Description Editing
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleText, setTitleText] = useState('');
-  const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [descText, setDescText] = useState('');
   
 
@@ -72,7 +72,6 @@ export default function TaskModal({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showChecklistPopover, setShowChecklistPopover] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [dueDateValue, setDueDateValue] = useState('');
 
   // Custom Fields & Location State
   const [hasCustomFields, setHasCustomFields] = useState(false);
@@ -172,10 +171,6 @@ export default function TaskModal({
     try {
       // If button has multi-action list (Trello Automation modal)
       if (btn.actions && Array.isArray(btn.actions) && btn.actions.length > 0) {
-        const storedUser = localStorage.getItem('currentUser');
-        const user = storedUser ? JSON.parse(storedUser) : null;
-        const currentName = user?.name || 'Me';
-
         const res = await runCardButton(
           {
             id: btn.id,
@@ -186,8 +181,7 @@ export default function TaskModal({
             actions: btn.actions
           },
           task,
-          columns,
-          currentName
+          columns
         );
 
         if (res.executed && res.executed.length > 0) {
@@ -277,11 +271,39 @@ export default function TaskModal({
         setAutomationToast(`✓ Executed "${btn.title}"`);
       }
       setTimeout(() => setAutomationToast(null), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to run automation:', err);
-      setAutomationToast('Error executing automation');
-      setTimeout(() => setAutomationToast(null), 3000);
+      const errMsg = err?.response?.data?.message || err?.response?.data?.error || err?.message || 'Error executing automation';
+      setAutomationToast(errMsg);
+      setTimeout(() => setAutomationToast(null), 3500);
     }
+  };
+
+  const getAttachmentUrl = (url?: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+      return url;
+    }
+    // Prevent double-prefixing
+    if (url.startsWith('/Workboard/TodoList/uploads/')) {
+      return url;
+    }
+    if (url.startsWith('/TodoList/uploads/')) {
+      return url;
+    }
+
+    const clean = url.startsWith('/') ? url : `/${url}`;
+
+    // On local dev servers (port 5173 or 3000), Vite proxy handles /uploads directly
+    if (typeof window !== 'undefined' && (window.location.port === '5173' || window.location.port === '3000')) {
+      return clean;
+    }
+
+    // In all production environments (including EVOL portal /EVOL/workboard_launch.php, /Workboard/TodoList, etc.)
+    if (clean.startsWith('/uploads/')) {
+      return `/Workboard/TodoList${clean}`;
+    }
+    return `/Workboard/TodoList${clean}`;
   };
 
   // Attachments & Image Upload / Paste
@@ -312,19 +334,6 @@ export default function TaskModal({
     }
   ];
 
-  const availableColors = [
-    { name: 'Green', bg: '#4bce97', text: '#091e42' },
-    { name: 'Yellow', bg: '#f5cd47', text: '#091e42' },
-    { name: 'Orange', bg: '#fea362', text: '#091e42' },
-    { name: 'Red', bg: '#f87168', text: '#ffffff' },
-    { name: 'Purple', bg: '#9f8fef', text: '#ffffff' },
-    { name: 'Blue', bg: '#579dff', text: '#091e42' },
-    { name: 'Sky', bg: '#6cc3e0', text: '#091e42' },
-    { name: 'Lime', bg: '#94c748', text: '#091e42' },
-    { name: 'Pink', bg: '#e774bb', text: '#ffffff' },
-    { name: 'Slate', bg: '#8590a2', text: '#ffffff' },
-  ];
-
   const formatRelativeTime = (dateStr: string) => {
     if (!dateStr) return '';
     try {
@@ -349,7 +358,8 @@ export default function TaskModal({
     }
   };
 
-  const [portalUsers, setPortalUsers] = useState<any[]>([]);
+  const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
+  const [checklistAssigneeSearch, setChecklistAssigneeSearch] = useState('');
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [memberFilterText, setMemberFilterText] = useState('');
   const [memberFeedback, setMemberFeedback] = useState<string | null>(null);
@@ -402,11 +412,8 @@ export default function TaskModal({
         try {
           const parsed = JSON.parse(cfMatch[1]);
           if (parsed && typeof parsed === 'object') {
-            const keys = Object.keys(parsed).filter(k => !['cover_image_url', '_definitions'].includes(k));
-            if (keys.length > 0) {
-              parsedFields = parsed;
-              fieldsActive = true;
-            }
+            parsedFields = parsed;
+            fieldsActive = Object.keys(parsed).some(k => !COVER_KEYS.includes(k) && k !== '_definitions');
           }
         } catch {}
         rawDesc = rawDesc.replace(/<!--custom_fields:[\s\S]*?-->/g, '').trim();
@@ -422,12 +429,6 @@ export default function TaskModal({
       setCustomFields(parsedFields);
       setLocation(parsedLoc);
       setDescText(rawDesc);
-
-      if (data.task.due_date) {
-        setDueDateValue(new Date(data.task.due_date).toISOString().split('T')[0] || '');
-      } else {
-        setDueDateValue('');
-      }
     } catch (err) {
       console.error('Failed to load task details', err);
     } finally {
@@ -456,8 +457,11 @@ export default function TaskModal({
     }
 
     const fieldsState = customFieldsActive !== undefined ? customFieldsActive : hasCustomFields;
-    if (fieldsState && Object.keys(fields).length > 0) {
-      combined = `${combined}\n\n<!--custom_fields:${JSON.stringify(fields)}-->`;
+    const savedFields = fieldsState
+      ? fields
+      : Object.fromEntries(Object.entries(fields).filter(([k, v]) => COVER_KEYS.includes(k) && v));
+    if (Object.keys(savedFields).length > 0) {
+      combined = `${combined}\n\n<!--custom_fields:${JSON.stringify(savedFields)}-->`;
     }
 
     if (loc) {
@@ -500,7 +504,6 @@ export default function TaskModal({
   };
 
   const handleSaveDescription = async (newDesc: string) => {
-    setIsEditingDesc(false);
     setDescText(newDesc);
     await saveTaskWithFields(newDesc, customFields, location);
   };
@@ -540,11 +543,9 @@ export default function TaskModal({
   const handleCreateCardFromTemplate = async () => {
     if (!task) return;
     try {
-      const targetCol = columns.find(c => c.id === (task.column_id || task.columnId)) || columns[0];
       const { data } = await api.post('/tasks', {
         title: `${task.title} (Copy)`,
         boardId: task.board_id, 
-        // columnId: targetCol.id,
         projectId: task.project_id,
         description: descText,
         priority: task.priority || 'medium',
@@ -595,41 +596,36 @@ export default function TaskModal({
     }
   };
 
-  const uploadFile = async (file: File) => {
-    if (readOnly) return;
+  const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const uploadFile = async (file: File): Promise<any | null> => {
+    if (readOnly) return null;
+    setIsUploadingAttachment(true);
+    setUploadError(null);
     try {
-      setIsUploadingAttachment(true);
-      setUploadError(null);
-
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const dataUrl = reader.result as string;
-          const { data } = await api.post(`/tasks/${taskId}/attachments`, {
-            fileName: file.name || `Pasted_Image_${Date.now()}.png`,
-            fileType: file.type || 'image/png',
-            dataUrl
-          });
-
-          // Add to local state & reload details
-          setTask((prev: any) => ({
-            ...prev,
-            attachments: [data.attachment, ...(prev.attachments || [])]
-          }));
-          await loadTask();
-          onTaskUpdated?.();
-        } catch (postErr: any) {
-          console.error('Failed to upload file to backend', postErr);
-          setUploadError('Failed to upload file. Please try again.');
-        } finally {
-          setIsUploadingAttachment(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error('Error reading file for upload', err);
+      const dataUrl = await readAsDataUrl(file);
+      const { data } = await api.post(`/tasks/${taskId}/attachments`, {
+        fileName: file.name || `Pasted_Image_${Date.now()}.png`,
+        fileType: file.type || 'image/png',
+        dataUrl
+      });
+      setTask((prev: any) => ({
+        ...prev,
+        attachments: [data.attachment, ...(prev.attachments || [])]
+      }));
+      onTaskUpdated?.();
+      return data.attachment;
+    } catch (err: any) {
+      console.error('Failed to upload file', err);
+      setUploadError(err?.response?.status === 413 ? 'File is too large to upload.' : 'Failed to upload file. Please try again.');
+      return null;
+    } finally {
       setIsUploadingAttachment(false);
-      setUploadError('Failed to process file.');
     }
   };
 
@@ -693,7 +689,7 @@ export default function TaskModal({
         setTimeout(() => setMemberFeedback(null), 3500);
         triggerBoardRulesForEvent(
           'MEMBER_ADDED',
-          { card: task, currentUserName: userName || 'Me' },
+          { card: task },
           columns
         ).then(reports => {
           if (reports && reports.length > 0) {
@@ -723,47 +719,6 @@ export default function TaskModal({
       console.error(err);
     }
   };
-
-  // Save Card Description
-  const handleSaveDesc = async () => {
-    if (readOnly) {
-      setIsEditingDesc(false);
-      return;
-    }
-    try {
-      await api.put(`/tasks/${taskId}`, { description: descText });
-      setTask({ ...task, description: descText });
-      setIsEditingDesc(false);
-      await loadTask();
-      onTaskUpdated?.();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Overall Save All Changes (Title, Description, Due Date)
-  const handleSaveAll = async () => {
-    if (readOnly) return;
-    try {
-      setIsSavingAll(true);
-      await api.put(`/tasks/${taskId}`, {
-        title: titleText.trim() || task.title,
-        description: descText,
-        dueDate: dueDateValue || null
-      });
-      setIsEditingTitle(false);
-      setIsEditingDesc(false);
-      setSaveSuccessMsg(true);
-      setTimeout(() => setSaveSuccessMsg(false), 3000);
-      await loadTask();
-      onTaskUpdated?.();
-    } catch (err) {
-      console.error('Failed to save all card changes', err);
-    } finally {
-      setIsSavingAll(false);
-    }
-  };
-
 
   // Labels Handlers
   const handleToggleLabel = async (lbl: { name: string; color?: string; bg?: string }) => {
@@ -939,7 +894,7 @@ export default function TaskModal({
     const dueDate = checklistItemDueDate[checklistId];
 
     if (assignedUser) {
-      fullTitle += ` @${assignedUser.name}`;
+      fullTitle += ` @${assignedUser.username || assignedUser.name}`;
     }
     if (dueDate) {
       fullTitle += ` ⏰ ${dueDate}`;
@@ -1094,7 +1049,7 @@ export default function TaskModal({
 
   return (
     <div 
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto" 
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto" 
       onClick={onClose}
       onPaste={handlePaste}
     >
@@ -1103,12 +1058,13 @@ export default function TaskModal({
         type="file" 
         ref={fileInputRef} 
         onChange={handleFileInputChange} 
+        onClick={e => e.stopPropagation()}
         className="hidden" 
-        accept="image/*,.pdf,.doc,.docx,.txt"
+        accept="image/*,.pdf,.doc,.docx,.txt,.xls,.xlsx,.csv,.zip"
       />
 
       <div 
-        className="bg-white text-gray-800 w-full max-w-4xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden my-6 transition-all animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[92vh]"
+        className="bg-white text-gray-800 w-full max-w-4xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden my-auto sm:my-6 transition-all animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[94vh]"
         onClick={e => e.stopPropagation()}
       >
         {loading ? (
@@ -1129,9 +1085,20 @@ export default function TaskModal({
               >
                 {(customFields.cover_image_url || task.cover_image_url) && (
                   <img 
-                    src={customFields.cover_image_url || task.cover_image_url} 
+                    src={getAttachmentUrl(customFields.cover_image_url || task.cover_image_url)} 
                     alt="Card cover" 
-                    className="w-full h-full object-cover object-center transition-all" 
+                    className="w-full h-full object-cover object-center transition-all"
+                    onError={(e) => {
+                      const el = e.currentTarget;
+                      if (!el.dataset.fallbackTried) {
+                        el.dataset.fallbackTried = '1';
+                        if (el.src.includes('/Workboard/TodoList/uploads/')) {
+                          el.src = el.src.replace('/Workboard/TodoList/uploads/', '/uploads/');
+                        } else if (el.src.includes('/uploads/')) {
+                          el.src = el.src.replace('/uploads/', '/Workboard/TodoList/uploads/');
+                        }
+                      }
+                    }}
                   />
                 )}
                 
@@ -1365,19 +1332,11 @@ export default function TaskModal({
                       className="hidden" 
                       onChange={async (e) => {
                         const file = e.target.files?.[0];
+                        e.target.value = '';
                         if (!file) return;
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        try {
-                          const res = await api.post(`/tasks/${taskId}/attachments`, formData, {
-                            headers: { 'Content-Type': 'multipart/form-data' }
-                          });
-                          const uploadedUrl = res.data?.attachment?.url || res.data?.url;
-                          if (uploadedUrl) {
-                            handleSelectCover(uploadedUrl, '#18181b');
-                          }
-                        } catch (err) {
-                          console.error('Failed to upload cover image', err);
+                        const attachment = await uploadFile(file);
+                        if (attachment?.url) {
+                          await handleSelectCover(attachment.url, '#18181b');
                         }
                       }}
                     />
@@ -1452,7 +1411,7 @@ export default function TaskModal({
             )}
 
             {/* Modal Body: Two Columns */}
-            <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-8 overflow-y-auto flex-1">
+            <div className="p-4 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-8 overflow-y-auto flex-1">
               
               {/* Left Column (Main Card Details) */}
               <div className="md:col-span-7 flex flex-col gap-6">
@@ -1955,15 +1914,14 @@ export default function TaskModal({
                                 <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Assign Portal Member</div>
                                 <input 
                                   type="text" 
-                                  placeholder="Search member name or email..." 
+                                  placeholder="Search name, username, emp code, department..." 
                                   value={memberFilterText}
                                   onChange={e => setMemberFilterText(e.target.value)}
                                   className="w-full text-xs bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-blue-500"
                                 />
                               </div>
                               <div className="max-h-56 overflow-y-auto pt-1">
-                                {portalUsers
-                                  .filter(u => !memberFilterText || u.name?.toLowerCase().includes(memberFilterText.toLowerCase()) || u.email?.toLowerCase().includes(memberFilterText.toLowerCase()))
+                                {filterMembers(portalUsers, memberFilterText)
                                   .map(u => {
                                     const isAssigned = (task.assignees || []).some((a: any) => a.id === u.id);
                                     return (
@@ -1979,7 +1937,7 @@ export default function TaskModal({
                                           </div>
                                           <div className="truncate">
                                             <div className="truncate font-medium">{u.name}</div>
-                                            <div className="text-[10px] text-gray-400 truncate">{u.email}</div>
+                                            <div className="text-[10px] text-gray-400 truncate">{memberSubtitle(u)}</div>
                                           </div>
                                         </div>
                                         {isAssigned ? (
@@ -2072,12 +2030,27 @@ export default function TaskModal({
                             >
                               {isImg ? (
                                 <a 
-                                  href={att.url} 
+                                  href={getAttachmentUrl(att.url)} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
-                                  className="shrink-0 w-16 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center"
+                                  className="shrink-0 w-16 h-12 rounded-lg overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center cursor-pointer"
                                 >
-                                  <img src={att.url} alt={att.file_name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                  <img 
+                                    src={getAttachmentUrl(att.url)} 
+                                    alt={att.file_name} 
+                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform" 
+                                    onError={(e) => {
+                                      const el = e.currentTarget;
+                                      if (!el.dataset.fallbackTried) {
+                                        el.dataset.fallbackTried = '1';
+                                        if (el.src.includes('/Workboard/TodoList/uploads/')) {
+                                          el.src = el.src.replace('/Workboard/TodoList/uploads/', '/uploads/');
+                                        } else if (el.src.includes('/uploads/')) {
+                                          el.src = el.src.replace('/uploads/', '/Workboard/TodoList/uploads/');
+                                        }
+                                      }
+                                    }}
+                                  />
                                 </a>
                               ) : (
                                 <div className="shrink-0 w-16 h-12 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center">
@@ -2087,10 +2060,10 @@ export default function TaskModal({
 
                               <div className="flex-1 min-w-0">
                                 <a 
-                                  href={att.url} 
+                                  href={getAttachmentUrl(att.url)} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
-                                  className="text-xs font-bold text-gray-800 truncate block hover:text-blue-600"
+                                  className="text-xs font-bold text-gray-800 truncate block hover:text-blue-600 cursor-pointer"
                                 >
                                   {att.file_name}
                                 </a>
@@ -2112,7 +2085,7 @@ export default function TaskModal({
 
                               <div className="flex items-center gap-1 shrink-0 relative">
                                 <a 
-                                  href={att.url} 
+                                  href={getAttachmentUrl(att.url)} 
                                   target="_blank" 
                                   rel="noopener noreferrer" 
                                   className="p-1.5 text-gray-400 hover:text-blue-600 rounded-md hover:bg-gray-100" 
@@ -2149,8 +2122,10 @@ export default function TaskModal({
                                           </button>
                                         )}
                                         <a
-                                          href={att.url}
+                                          href={getAttachmentUrl(att.url)}
                                           download={att.file_name}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
                                           onClick={() => setAttachmentMenuOpen(null)}
                                           className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 cursor-pointer"
                                         >
@@ -2333,8 +2308,18 @@ export default function TaskModal({
                                             <div className="px-3 py-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider border-b border-gray-100">
                                               Assign checklist item
                                             </div>
+                                            <div className="p-2 border-b border-gray-100">
+                                              <input
+                                                type="text"
+                                                autoFocus
+                                                placeholder="Search members..."
+                                                value={checklistAssigneeSearch}
+                                                onChange={e => setChecklistAssigneeSearch(e.target.value)}
+                                                className="w-full bg-gray-50 border border-gray-200 rounded-md px-2 py-1 outline-none focus:border-blue-500"
+                                              />
+                                            </div>
                                             <div className="max-h-40 overflow-y-auto">
-                                              {portalUsers.map(u => (
+                                              {filterMembers(portalUsers, checklistAssigneeSearch).map(u => (
                                                 <button
                                                   key={u.id}
                                                   type="button"
@@ -2505,7 +2490,7 @@ export default function TaskModal({
                   ))}
 
                   {/* Real Activities Stream from Database */}
-                  {(task.activities || []).map((act: any, actIdx: number) => (
+                  {showActivityDetails && (task.activities || []).map((act: any, actIdx: number) => (
                     <div key={act.id || actIdx} className="flex items-start gap-3">
                       <div className="w-8 h-8 rounded-full bg-[#00875a] text-white font-bold flex items-center justify-center text-xs shrink-0 select-none shadow-2xs">
                         {(act.user_name || 'U').charAt(0).toUpperCase()}
@@ -2526,9 +2511,9 @@ export default function TaskModal({
                     </div>
                   ))}
 
-                  {(!task.comments || task.comments.length === 0) && (!task.activities || task.activities.length === 0) && (
+                  {(!task.comments || task.comments.length === 0) && (!showActivityDetails || !task.activities || task.activities.length === 0) && (
                     <div className="p-4 text-center text-xs text-gray-400 italic">
-                      No activity recorded on this card yet.
+                      {showActivityDetails ? 'No activity recorded on this card yet.' : 'No comments yet. Activity details are hidden.'}
                     </div>
                   )}
 
@@ -2602,8 +2587,6 @@ export default function TaskModal({
               onClose={() => setShowAutomationPopover(false)}
               columns={columns}
               boardName={task?.board_name || 'test'}
-              labels={task?.labels || []}
-              card={task}
               automationButtons={automationButtons}
               onOpenAutomationDirectory={onOpenAutomationDirectory}
               onAddButton={(btn) => {

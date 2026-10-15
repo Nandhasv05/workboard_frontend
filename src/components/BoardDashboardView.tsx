@@ -5,8 +5,9 @@ import {
 } from 'recharts';
 import { 
   CheckCircle2, Clock, AlertTriangle, Layers, TrendingUp, 
-  Users, CheckSquare, Calendar, ExternalLink, BarChart2
+  Users, BarChart2
 } from 'lucide-react';
+import type { PortalUser } from '../utils/members';
 
 interface Task {
   id: string;
@@ -32,16 +33,14 @@ interface BoardDashboardViewProps {
   board: any;
   tasks: Task[];
   columns: Column[];
-  portalUsers?: { id: string; name: string; email?: string }[];
-  onSelectTask: (taskId: string) => void;
+  portalUsers?: PortalUser[];
 }
 
 export const BoardDashboardView: React.FC<BoardDashboardViewProps> = ({
   board,
   tasks,
   columns,
-  portalUsers = [],
-  onSelectTask
+  portalUsers = []
 }) => {
   // Compute Key Metrics
   const metrics = useMemo(() => {
@@ -149,13 +148,13 @@ export const BoardDashboardView: React.FC<BoardDashboardViewProps> = ({
   }, [tasks, portalUsers]);
 
   return (
-    <div className="flex-1 flex flex-col p-6 max-w-7xl mx-auto w-full pb-28 overflow-y-auto custom-scrollbar gap-6">
+    <div className="flex-1 flex flex-col p-3 sm:p-6 max-w-7xl mx-auto w-full pb-28 overflow-y-auto custom-scrollbar gap-4 sm:gap-6">
       {/* Header Summary */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+          <h2 className="text-lg sm:text-xl font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
             <BarChart2 className="text-[#0c66e4]" size={22} />
-            <span>{board?.name || 'Board'} Analytics Dashboard</span>
+            <span>{board?.name || 'Board'} Analytics</span>
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
             Real-time delivery progress, bottleneck detection, and timeline metrics.

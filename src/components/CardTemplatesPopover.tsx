@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Plus, Copy, LayoutTemplate, Layers } from 'lucide-react';
+import { X, Plus, Layers } from 'lucide-react';
 
 interface CardTemplatesPopoverProps {
   templates: { id: string; title: string; description?: string; labels?: any }[];

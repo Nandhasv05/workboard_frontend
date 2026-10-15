@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { 
   Plus, MoreHorizontal, CheckSquare, Square, Star, Lock, 
   Share2, Filter, Layout, Calendar as CalendarIcon, 
-  Table, BarChart2, Clock, ChevronDown, Check, MessageSquare, 
-  Paperclip, ArrowRightLeft, Inbox, X, Edit2, Key, Users, 
-  ShieldCheck, AlertCircle, Search, Trash2, CheckCircle2,
-  Copy, ArrowLeft, ArrowRight, Maximize2, Minimize2, Globe, ExternalLink, Layers,
+  Table, BarChart2, Clock, ChevronDown, Check, 
+  ArrowRightLeft, Inbox, X, Key, Users, 
+  ShieldCheck, AlertCircle, Search, Trash2,
+  Copy, Maximize2, Minimize2, Globe, ExternalLink, Layers,
   Zap
 } from 'lucide-react';
 import { api } from '../api';
@@ -18,8 +18,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDroppable,
-  DragOverlay
+  useDroppable
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -38,13 +37,10 @@ import { BoardTableView } from '../components/BoardTableView';
 import { BoardCalendarView } from '../components/BoardCalendarView';
 import { BoardDashboardView } from '../components/BoardDashboardView';
 import { BoardMenuDrawer } from '../components/BoardMenuDrawer';
-import { AutomationModal, AutomationRule } from '../components/AutomationModal';
-import { 
-  triggerBoardRulesForEvent, 
-  runBoardButton, 
-  checkDueDateAutomations, 
-  logAutomationActivity 
-} from '../utils/automationEngine';
+import { AutomationModal } from '../components/AutomationModal';
+import { triggerBoardRulesForEvent, checkDueDateAutomations } from '../utils/automationEngine';
+import { assigneeIdList, filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
+import { appUrl } from '../utils/routing';
 
 interface Task {
   id: string;
@@ -524,10 +520,8 @@ function DroppableColumn({
             onClick={e => e.stopPropagation()}
           >
             <ListActionsPopover
-              columnId={column.id}
               columnName={column.name}
               currentColor={column.color}
-              cardCount={tasks.length}
               onAddCard={() => setAddingToCol(column.id)}
               onCopyList={() => onCopyList?.(column.id)}
               onMoveList={() => {
@@ -591,7 +585,6 @@ function DroppableColumn({
 
 export default function Board() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const isFullscreen = searchParams.get('view') === 'fullscreen';
   const isReadOnly = searchParams.get('mode') === 'view' || isFullscreen || searchParams.get('readonly') === 'true' || searchParams.get('public') === 'true';
@@ -600,7 +593,7 @@ export default function Board() {
   const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [boardMembers, setBoardMembers] = useState<any[]>([]);
-  const [portalUsers, setPortalUsers] = useState<any[]>([]);
+  const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Share Modal State
@@ -639,78 +632,9 @@ export default function Board() {
 
   // Automation Modal State
   const [showAutomationModal, setShowAutomationModal] = useState(false);
-  const [activeBoardButtons, setActiveBoardButtons] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem('orbit_board_buttons');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed.filter((b: any) => b.enabled);
-      }
-    } catch {}
-    return [
-      {
-        id: 'bb-1',
-        title: 'Monday setup',
-        icon: 'Calendar',
-        enabled: true,
-        actions: ['Archive all cards in list "This Week"', 'move all cards in list "Last Week" to "This Week"']
-      },
-      {
-        id: 'bb-2',
-        title: 'Prioritize',
-        icon: 'ArrowUpDown',
-        enabled: true,
-        actions: ['Sort the cards in list "Doing" by custom field "Priority" descending']
-      },
-      {
-        id: 'bb-3',
-        title: 'Shuffle pick',
-        icon: 'Sparkles',
-        enabled: true,
-        actions: ['Move 2 random cards from list "Backlog" to list "Doing"']
-      }
-    ];
-  });
-  const [boardActionToast, setBoardActionToast] = useState<string | null>(null);
-  const [isExecutingBoardButton, setIsExecutingBoardButton] = useState(false);
-
-  const refreshBoardButtons = () => {
-    try {
-      const saved = localStorage.getItem('orbit_board_buttons');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          setActiveBoardButtons(parsed.filter((b: any) => b.enabled));
-          return;
-        }
-      }
-    } catch {}
-  };
-
-  const handleExecuteBoardButton = async (btn: any) => {
-    if (!board || isExecutingBoardButton) return;
-    setIsExecutingBoardButton(true);
-    setBoardActionToast(`Executing "${btn.title}"...`);
-    try {
-      const res = await runBoardButton(btn, board.id, board.project_id, columns, tasks, 'Me');
-      if (res.executed.length > 0) {
-        setBoardActionToast(`✓ ${res.executed.join('; ')}`);
-      } else {
-        setBoardActionToast(`✓ Executed "${btn.title}"`);
-      }
-      await loadBoardData();
-    } catch (e) {
-      console.error('Error running board button', e);
-      setBoardActionToast(`Failed to execute "${btn.title}"`);
-    } finally {
-      setIsExecutingBoardButton(false);
-      setTimeout(() => setBoardActionToast(null), 3500);
-    }
-  };
-
   // Members Modal State
   const [showMembersModal, setShowMembersModal] = useState(false);
-  const [selectedMemberToAdd, setSelectedMemberToAdd] = useState('');
+  const [boardMemberSearch, setBoardMemberSearch] = useState('');
 
   // Inbox Drawer State
   const [showInbox, setShowInbox] = useState(false);
@@ -764,14 +688,10 @@ export default function Board() {
       setBoardNameInput(b.name);
       setBoardMembers(b.members || []);
 
-      // Check if board is private and unlocked
-      if (b.visibility === 'private') {
-        const isUnlocked = sessionStorage.getItem(`unlocked_board_${b.id}`);
-        if (!isUnlocked) {
-          setIsLocked(true);
-          setLoading(false);
-          return;
-        }
+      if (b.locked) {
+        setIsLocked(true);
+        setLoading(false);
+        return;
       }
       setIsLocked(false);
 
@@ -815,7 +735,6 @@ export default function Board() {
     try {
       setUnlockError('');
       await api.post(`/boards/${board.id}/verify-access`, { accessCode: passcodeAttempt.trim() });
-      sessionStorage.setItem(`unlocked_board_${board.id}`, 'true');
       setIsLocked(false);
       loadBoardData();
     } catch (err: any) {
@@ -879,7 +798,7 @@ export default function Board() {
 
       const executed = await triggerBoardRulesForEvent(
         evType,
-        { card: taskObj, toColumn: colObj, currentUserName: 'Me' },
+        { card: taskObj, toColumn: colObj },
         columns
       );
 
@@ -1185,12 +1104,10 @@ export default function Board() {
     }
   };
 
-  const handleAddMemberToBoard = async () => {
-    if (!selectedMemberToAdd) return;
+  const handleAddMemberToBoard = async (userId: string) => {
     try {
-      const { data } = await api.post(`/boards/${board.id}/members`, { userId: selectedMemberToAdd });
+      const { data } = await api.post(`/boards/${board.id}/members`, { userId });
       setBoardMembers(data.members || []);
-      setSelectedMemberToAdd('');
     } catch (err) {
       console.error('Failed to add member to board', err);
     }
@@ -1204,6 +1121,14 @@ export default function Board() {
       console.error('Failed to remove member from board', err);
     }
   };
+
+  const shareWorkspaceUrl = board ? appUrl(`/boards/${board.id}`) : '';
+  const shareFullscreenUrl = board ? appUrl(`/boards/${board.id}?view=fullscreen&mode=view`) : '';
+
+  const addableMembers = filterMembers(
+    portalUsers.filter(u => !boardMembers.some(m => m.user_id === u.id)),
+    boardMemberSearch
+  );
 
   if (loading) {
     return (
@@ -1374,13 +1299,14 @@ export default function Board() {
     const hasMembersFilter = filterState.members.noMembers || filterState.members.assignedToMe || filterState.members.selectedUserIds.length > 0;
     if (hasMembersFilter) {
       let passedMembers = false;
-      if (filterState.members.noMembers && (!t.assignee_ids || t.assignee_ids.trim() === '')) {
+      const assigneeIds = assigneeIdList(t.assignee_ids);
+      if (filterState.members.noMembers && assigneeIds.length === 0) {
         passedMembers = true;
       }
-      if (filterState.members.assignedToMe && currentUserId && t.assignee_ids?.includes(currentUserId)) {
+      if (filterState.members.assignedToMe && currentUserId && assigneeIds.includes(currentUserId)) {
         passedMembers = true;
       }
-      if (filterState.members.selectedUserIds.some(uid => t.assignee_ids?.includes(uid))) {
+      if (filterState.members.selectedUserIds.some(uid => assigneeIds.includes(uid))) {
         passedMembers = true;
       }
       tests.push({ active: true, passed: passedMembers });
@@ -1501,48 +1427,48 @@ export default function Board() {
       
       {/* Board Top Subheader Bar */}
       {isFullscreen ? (
-        <div className="h-14 bg-white/95 backdrop-blur-md px-6 flex items-center justify-between border-b border-gray-200/80 shrink-0 z-20 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-blue-600 text-white font-extrabold flex items-center justify-center text-sm shadow-xs">
+        <div className="min-h-12 bg-white/95 backdrop-blur-md px-3 sm:px-6 py-2 flex items-center justify-between border-b border-gray-200/80 shrink-0 z-20 shadow-xs gap-2 overflow-x-auto no-scrollbar">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-600 text-white font-extrabold flex items-center justify-center text-xs sm:text-sm shadow-xs">
               e
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold text-gray-900 tracking-tight">{board.name}</h1>
-                <span className="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <h1 className="text-sm sm:text-base font-extrabold text-gray-900 tracking-tight max-w-[140px] sm:max-w-none truncate">{board.name}</h1>
+                <span className="hidden sm:inline-flex bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider items-center gap-1">
                   <Maximize2 size={10} /> Full Screen Presentation
                 </span>
                 <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider ${board.visibility === 'private' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
                   {board.visibility}
                 </span>
               </div>
-              <span className="text-[11px] text-gray-400">View-only presentation mode</span>
+              <span className="text-[11px] text-gray-400 hidden sm:block">View-only presentation mode</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => setShowShareModal(true)}
-              className="flex items-center gap-1.5 bg-[#0052cc] hover:bg-[#0065ff] text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+              className="flex items-center gap-1 sm:gap-1.5 bg-[#0052cc] hover:bg-[#0065ff] text-white px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
             >
-              <Share2 size={14} /> Share
+              <Share2 size={13} /> <span className="hidden sm:inline">Share</span>
             </button>
             <button
               type="button"
               onClick={() => setSearchParams({})}
-              className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              className="flex items-center gap-1 sm:gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 px-2.5 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               title="Exit full-screen mode"
             >
-              <Minimize2 size={14} /> Exit Full Screen
+              <Minimize2 size={13} /> <span className="hidden sm:inline">Exit Full Screen</span>
             </button>
           </div>
         </div>
       ) : (
-        <div className="h-14 bg-white/95 backdrop-blur-md px-4 flex items-center justify-between border-b border-gray-200 shrink-0 z-20 shadow-2xs">
+        <div className="min-h-12 bg-white/95 backdrop-blur-md px-2.5 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between border-b border-gray-200 shrink-0 z-20 shadow-2xs gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar">
         
         {/* Left Side: Board Title & Views dropdown */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {isEditingBoardName ? (
             <input 
               autoFocus
@@ -1551,35 +1477,36 @@ export default function Board() {
               onChange={e => setBoardNameInput(e.target.value)}
               onBlur={handleSaveBoardName}
               onKeyDown={e => { if (e.key === 'Enter') handleSaveBoardName(); }}
-              className="bg-white border-2 border-blue-600 rounded px-2.5 py-1 text-gray-900 font-bold text-base outline-none"
+              className="bg-white border-2 border-blue-600 rounded px-2.5 py-1 text-gray-900 font-bold text-sm sm:text-base outline-none max-w-[140px] sm:max-w-none"
             />
           ) : (
             <h1 
               onClick={() => setIsEditingBoardName(true)}
-              className="text-base font-extrabold text-gray-900 hover:bg-gray-100 px-2 py-1 rounded cursor-pointer transition-colors"
+              className="text-sm sm:text-base font-extrabold text-gray-900 hover:bg-gray-100 px-1.5 sm:px-2 py-1 rounded cursor-pointer transition-colors max-w-[120px] sm:max-w-[200px] md:max-w-none truncate"
+              title={board.name}
             >
               {board.name}
             </h1>
           )}
 
           {/* Views Selector Button */}
-          <div className="relative">
+          <div className="relative shrink-0">
             <button 
               onClick={() => setShowViewsDropdown(!showViewsDropdown)}
-              className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border border-gray-200 cursor-pointer shadow-2xs"
+              className="flex items-center gap-1 sm:gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all border border-gray-200 cursor-pointer shadow-2xs"
             >
               {currentView === 'board' && <Layout size={14} className="text-[#0c66e4]" />}
               {currentView === 'table' && <Table size={14} className="text-[#0c66e4]" />}
               {currentView === 'calendar' && <CalendarIcon size={14} className="text-[#0c66e4]" />}
               {currentView === 'dashboard' && <BarChart2 size={14} className="text-[#0c66e4]" />}
-              <span className="capitalize">{currentView}</span>
+              <span className="capitalize hidden sm:inline">{currentView}</span>
               <ChevronDown size={13} className="text-gray-500" />
             </button>
 
             {showViewsDropdown && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setShowViewsDropdown(false)} />
-                <div className="absolute left-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden z-50 text-gray-700 animate-in fade-in zoom-in-95">
+                <div className="absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-2xl shadow-2xl overflow-hidden z-50 text-gray-700 animate-in fade-in zoom-in-95">
                   <div className="p-3.5 border-b border-gray-100 bg-gray-50/80">
                     <h3 className="text-sm font-bold text-gray-900">Board Views</h3>
                     <p className="text-xs text-gray-500 mt-0.5">Switch view modes to manage your timeline.</p>
@@ -1646,24 +1573,24 @@ export default function Board() {
           {/* Star Icon */}
           <button 
             onClick={() => setIsStarred(!isStarred)}
-            className={`p-1.5 rounded hover:bg-gray-100 transition-colors ${isStarred ? 'text-amber-400' : 'text-gray-400 hover:text-gray-600'}`}
+            className={`p-1.5 rounded hover:bg-gray-100 transition-colors shrink-0 ${isStarred ? 'text-amber-400' : 'text-gray-400 hover:text-gray-600'}`}
           >
             <Star size={16} fill={isStarred ? 'currentColor' : 'none'} />
           </button>
 
           {/* Visibility indicator */}
-          <div className="relative">
+          <div className="relative shrink-0">
             {board.visibility === 'private' ? (
               <button 
                 onClick={() => setShowCodePopover(!showCodePopover)}
-                className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors"
+                className="flex items-center gap-1 sm:gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-bold transition-colors"
                 title="Private board — Click to view access passcode"
               >
                 <Lock size={12} />
                 <span>Private</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5 bg-gray-100 text-gray-700 border border-gray-200 px-2.5 py-1 rounded-lg text-xs font-semibold">
+              <div className="flex items-center gap-1 sm:gap-1.5 bg-gray-100 text-gray-700 border border-gray-200 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-semibold">
                 <ShieldCheck size={12} className="text-emerald-600" />
                 <span>Public</span>
               </div>
@@ -1671,7 +1598,7 @@ export default function Board() {
 
             {/* Access Code Popover */}
             {showCodePopover && board.access_code && (
-              <div className="absolute left-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-50 animate-in fade-in zoom-in-95 text-xs text-gray-800">
+              <div className="absolute left-0 mt-2 w-64 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl p-3 z-50 animate-in fade-in zoom-in-95 text-xs text-gray-800">
                 <div className="font-bold text-gray-900 mb-1 flex items-center gap-1.5">
                   <Key size={14} className="text-amber-600" /> Board Passcode
                 </div>
@@ -1687,62 +1614,48 @@ export default function Board() {
         </div>
 
         {/* Right Side: Members, Filter & Share Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
           {/* Board Members Avatar Stack */}
           <div 
             onClick={() => setShowMembersModal(true)}
-            className="flex items-center -space-x-1.5 cursor-pointer hover:opacity-90 transition-opacity mr-1" 
+            className="flex items-center -space-x-1.5 cursor-pointer hover:opacity-90 transition-opacity mr-0.5 sm:mr-1 shrink-0" 
             title="View & manage board members"
           >
-            {boardMembers.slice(0, 3).map((m, idx) => (
+            {boardMembers.slice(0, 2).map((m, idx) => (
               <div 
                 key={m.user_id || idx}
-                className="w-7 h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs uppercase"
+                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs uppercase"
               >
                 {(m.name || 'U').charAt(0)}
               </div>
             ))}
-            <div className="w-7 h-7 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs">
-              <Users size={12} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs">
+              <Users size={11} />
             </div>
           </div>
 
           <button 
             onClick={() => setShowMembersModal(true)}
-            className="flex items-center gap-1 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-gray-200"
+            className="flex items-center gap-1 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-gray-200 shrink-0"
+            title="Add member"
           >
-            <Plus size={13} /> Member
+            <Plus size={13} /> <span className="hidden sm:inline">Member</span>
           </button>
 
           <button 
             type="button"
             onClick={() => setShowAutomationModal(true)}
-            className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-[#0c66e4] hover:border-blue-300 hover:bg-blue-50 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-[#0c66e4] hover:border-blue-300 hover:bg-blue-50 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer shrink-0"
             title="Automation rules & directory"
           >
-            <Zap size={13} className="text-[#0c66e4]" fill="#0c66e4" /> Automation
+            <Zap size={13} className="text-[#0c66e4]" fill="#0c66e4" /> <span className="hidden md:inline">Automation</span>
           </button>
-
-          {/* Active Board Buttons */}
-          {activeBoardButtons.map(btn => (
-            <button
-              key={btn.id}
-              type="button"
-              disabled={isExecutingBoardButton}
-              onClick={() => handleExecuteBoardButton(btn)}
-              className="flex items-center gap-1.5 bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-gray-700 hover:text-[#0c66e4] px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all shadow-2xs cursor-pointer disabled:opacity-50"
-              title={`Run board button: ${btn.title}`}
-            >
-              <Zap size={12} className="text-amber-500 fill-amber-500" />
-              <span>{btn.title}</span>
-            </button>
-          ))}
 
           <button 
             onClick={() => setFilterDrawerOpen(true)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer ${activeFiltersCount > 0 ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border cursor-pointer shrink-0 ${activeFiltersCount > 0 ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100'}`}
           >
-            <Filter size={13} /> Filter
+            <Filter size={13} /> <span className="hidden sm:inline">Filter</span>
             {activeFiltersCount > 0 && (
               <span className="w-4 h-4 rounded-full bg-blue-600 text-white text-[10px] flex items-center justify-center font-bold">
                 {activeFiltersCount}
@@ -1753,18 +1666,18 @@ export default function Board() {
           <button 
             type="button"
             onClick={() => setShowShareModal(true)}
-            className="flex items-center gap-1.5 bg-[#0052cc] text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0065ff] transition-colors shadow-xs cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 bg-[#0052cc] text-white px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-[#0065ff] transition-colors shadow-xs cursor-pointer shrink-0"
           >
-            <Share2 size={13} /> Share
+            <Share2 size={13} /> <span className="hidden sm:inline">Share</span>
           </button>
 
           <button 
             type="button"
             onClick={() => setShowBoardMenu(true)}
-            className="flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+            className="flex items-center gap-1 sm:gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer shrink-0"
             title="Show board menu"
           >
-            <MoreHorizontal size={14} /> Menu
+            <MoreHorizontal size={14} /> <span className="hidden sm:inline">Menu</span>
           </button>
         </div>
 
@@ -1786,7 +1699,7 @@ export default function Board() {
 
       {/* MAIN KANBAN BOARD VIEW */}
       {currentView === 'board' && (
-        <main className="flex-1 overflow-x-auto p-5 flex items-start gap-4 custom-scrollbar pb-24">
+        <main className="flex-1 overflow-x-auto p-3 sm:p-5 flex items-start gap-3 sm:gap-4 custom-scrollbar pb-24">
           <DndContext 
             sensors={sensors} 
             collisionDetection={closestCorners} 
@@ -1890,7 +1803,6 @@ export default function Board() {
         <BoardCalendarView
           tasks={filteredTasks}
           columns={columns}
-          portalUsers={portalUsers}
           onSelectTask={id => setSelectedTaskId(id)}
           onAddTaskWithDate={handleAddTaskWithDate}
           isReadOnly={isReadOnly}
@@ -1904,7 +1816,6 @@ export default function Board() {
           tasks={filteredTasks}
           columns={columns}
           portalUsers={portalUsers}
-          onSelectTask={id => setSelectedTaskId(id)}
         />
       )}
 
@@ -2058,29 +1969,39 @@ export default function Board() {
             </div>
 
             <div className="p-6 flex flex-col gap-5">
-              {/* Add Member Dropdown */}
-              <div className="flex items-center gap-2">
-                <select 
-                  value={selectedMemberToAdd}
-                  onChange={e => setSelectedMemberToAdd(e.target.value)}
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs text-gray-800 outline-none focus:ring-1 focus:ring-blue-600"
-                >
-                  <option value="">Select a portal user to add to this board...</option>
-                  {portalUsers
-                    .filter(u => !boardMembers.some(m => m.user_id === u.id))
-                    .map(u => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} ({u.email}) - {u.role}
-                      </option>
+              {/* Add Member Search */}
+              <div className="flex flex-col gap-2">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search portal users by name, username, emp code, department..."
+                    value={boardMemberSearch}
+                    onChange={e => setBoardMemberSearch(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-xs text-gray-800 outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </div>
+                {boardMemberSearch.trim() && (
+                  <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                    {addableMembers.map(u => (
+                      <div key={u.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-gray-50">
+                        <div className="min-w-0">
+                          <div className="text-xs font-bold text-gray-900 truncate">{u.name}</div>
+                          <div className="text-[10px] text-gray-500 truncate">{memberSubtitle(u)}</div>
+                        </div>
+                        <button
+                          onClick={() => handleAddMemberToBoard(u.id)}
+                          className="bg-[#0052cc] hover:bg-[#0065ff] text-white text-[11px] font-bold px-3 py-1 rounded-md transition-colors shrink-0"
+                        >
+                          Add
+                        </button>
+                      </div>
                     ))}
-                </select>
-                <button 
-                  onClick={handleAddMemberToBoard}
-                  disabled={!selectedMemberToAdd}
-                  className="bg-[#0052cc] hover:bg-[#0065ff] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  Add
-                </button>
+                    {addableMembers.length === 0 && (
+                      <div className="p-3 text-center text-xs text-gray-400">No matching users to add.</div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Members List */}
@@ -2093,7 +2014,7 @@ export default function Board() {
                       </div>
                       <div>
                         <div className="text-xs font-bold text-gray-900">{m.name}</div>
-                        <div className="text-[10px] text-gray-500">{m.email} &bull; <span className="capitalize">{m.role}</span></div>
+                        <div className="text-[10px] text-gray-500">{memberSubtitle(m)} &bull; <span className="capitalize">{m.role}</span></div>
                       </div>
                     </div>
                     <button 
@@ -2232,19 +2153,19 @@ export default function Board() {
                   <input 
                     readOnly
                     type="text"
-                    value={`${window.location.origin}${typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : ''}/boards/${board.id}?view=fullscreen&mode=view`}
+                    value={shareFullscreenUrl}
                     className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono text-gray-800 outline-none select-all"
                   />
                   <button
                     type="button"
-                    onClick={() => handleCopy(`${window.location.origin}${typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : ''}/boards/${board.id}?view=fullscreen&mode=view`, 'fullscreen')}
+                    onClick={() => handleCopy(shareFullscreenUrl, 'fullscreen')}
                     className="bg-[#0052cc] hover:bg-[#0065ff] text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs shrink-0"
                   >
                     {copiedLink === 'fullscreen' ? <Check size={14} /> : <Copy size={14} />}
                     <span>{copiedLink === 'fullscreen' ? 'Copied!' : 'Copy Link'}</span>
                   </button>
                   <a
-                    href={`${typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : ''}/boards/${board.id}?view=fullscreen&mode=view`}
+                    href={shareFullscreenUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="p-2 border border-gray-300 hover:bg-gray-100 rounded-xl text-gray-700 transition-colors"
@@ -2268,12 +2189,12 @@ export default function Board() {
                   <input 
                     readOnly
                     type="text"
-                    value={`${window.location.origin}${typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : ''}/boards/${board.id}`}
+                    value={shareWorkspaceUrl}
                     className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono text-gray-800 outline-none select-all"
                   />
                   <button
                     type="button"
-                    onClick={() => handleCopy(`${window.location.origin}${typeof window !== 'undefined' && window.location.pathname.startsWith('/TodoList') ? '/TodoList' : ''}/boards/${board.id}`, 'workspace')}
+                    onClick={() => handleCopy(shareWorkspaceUrl, 'workspace')}
                     className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs shrink-0"
                   >
                     {copiedLink === 'workspace' ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
@@ -2314,7 +2235,6 @@ export default function Board() {
         }}
         isStarred={isStarred}
         onToggleStar={() => setIsStarred(!isStarred)}
-        onRefreshBoard={loadBoardData}
         onRestoreTask={async (taskId) => {
           try {
             await api.put(`/tasks/${taskId}`, { completed: false });
@@ -2325,28 +2245,12 @@ export default function Board() {
         }}
       />
 
-      {/* Board Automation Action Toast Banner */}
-      {boardActionToast && (
-        <div className="fixed top-16 right-6 z-50 bg-gray-900/90 backdrop-blur-md text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 border border-gray-700 animate-in slide-in-from-top duration-200">
-          <Zap size={14} className="text-yellow-400 fill-yellow-400 animate-pulse" />
-          <span>{boardActionToast}</span>
-        </div>
-      )}
-
       {/* Trello-style Butler Automation Modal */}
       <AutomationModal
         isOpen={showAutomationModal}
-        onClose={() => {
-          setShowAutomationModal(false);
-          refreshBoardButtons();
-        }}
+        onClose={() => setShowAutomationModal(false)}
         columns={columns}
-        boardName={board?.name}
-        currentUserName="Me"
-        onRuleExecuted={() => {
-          loadBoardData();
-          refreshBoardButtons();
-        }}
+        onRuleExecuted={loadBoardData}
       />
 
     </div>

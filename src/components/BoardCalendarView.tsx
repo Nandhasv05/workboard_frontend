@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, 
-  Check, CheckSquare, Clock, Filter, Eye, X, List, Layers, Tag
+  ChevronLeft, ChevronRight, Plus, Check, Clock, X
 } from 'lucide-react';
 
 interface Task {
@@ -27,7 +26,6 @@ interface Column {
 interface BoardCalendarViewProps {
   tasks: Task[];
   columns: Column[];
-  portalUsers?: { id: string; name: string; email?: string }[];
   onSelectTask: (taskId: string) => void;
   onAddTaskWithDate: (dateStr: string, title: string) => Promise<void>;
   isReadOnly?: boolean;
@@ -36,7 +34,6 @@ interface BoardCalendarViewProps {
 export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
   tasks,
   columns,
-  portalUsers = [],
   onSelectTask,
   onAddTaskWithDate,
   isReadOnly = false
@@ -163,11 +160,11 @@ export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="flex-1 flex flex-col p-5 max-w-7xl mx-auto w-full pb-24 overflow-hidden">
+    <div className="flex-1 flex flex-col p-3 sm:p-5 max-w-7xl mx-auto w-full pb-24 overflow-hidden">
       {/* Calendar Top Toolbar */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-3 sm:p-4 mb-3 sm:mb-4 flex items-center justify-between flex-wrap gap-3">
         {/* Navigation Controls */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl border border-gray-200">
             <button
               type="button"
@@ -180,7 +177,7 @@ export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
             <button
               type="button"
               onClick={goToToday}
-              className="px-3 py-1 hover:bg-white rounded-lg text-xs font-bold text-gray-800 transition-colors cursor-pointer"
+              className="px-2.5 sm:px-3 py-1 hover:bg-white rounded-lg text-xs font-bold text-gray-800 transition-colors cursor-pointer"
             >
               Today
             </button>
@@ -194,7 +191,7 @@ export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
             </button>
           </div>
 
-          <h2 className="text-base font-extrabold text-gray-900 tracking-tight ml-2">
+          <h2 className="text-sm sm:text-base font-extrabold text-gray-900 tracking-tight ml-1 sm:ml-2">
             {monthName}
           </h2>
         </div>
@@ -211,25 +208,26 @@ export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
             }`}
           >
             <Clock size={13} className="text-gray-500" />
-            <span>Unscheduled cards ({unscheduledTasks.length})</span>
+            <span>Unscheduled ({unscheduledTasks.length})</span>
           </button>
         </div>
       </div>
 
       <div className="flex-1 flex gap-4 overflow-hidden">
-        {/* Calendar Grid Container */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-hidden">
-          {/* Day Headers (Sun - Sat) */}
-          <div className="grid grid-cols-7 border-b border-gray-200 bg-gray-50/80 text-center text-xs font-bold text-gray-500 py-2.5 uppercase tracking-wider">
-            {dayNames.map((d, i) => (
-              <div key={i} className={i === 0 || i === 6 ? 'text-gray-400' : 'text-gray-700'}>
-                {d}
-              </div>
-            ))}
-          </div>
+        {/* Calendar Grid Container with horizontal scroll on mobile */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex-1 flex flex-col overflow-x-auto custom-scrollbar">
+          <div className="min-w-[620px] flex-1 flex flex-col">
+            {/* Day Headers (Sun - Sat) */}
+            <div className="grid grid-cols-7 border-b border-gray-200 bg-gray-50/80 text-center text-xs font-bold text-gray-500 py-2.5 uppercase tracking-wider">
+              {dayNames.map((d, i) => (
+                <div key={i} className={i === 0 || i === 6 ? 'text-gray-400' : 'text-gray-700'}>
+                  {d}
+                </div>
+              ))}
+            </div>
 
-          {/* Grid Cells */}
-          <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto custom-scrollbar divide-x divide-y divide-gray-100">
+            {/* Grid Cells */}
+            <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto custom-scrollbar divide-x divide-y divide-gray-100">
             {calendarDays.map((day, idx) => {
               const dayTasks = scheduledTasksMap[day.dateStr] || [];
 
@@ -335,6 +333,7 @@ export const BoardCalendarView: React.FC<BoardCalendarViewProps> = ({
             })}
           </div>
         </div>
+      </div>
 
         {/* Unscheduled Cards Drawer */}
         {showUnscheduled && (

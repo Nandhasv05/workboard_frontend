@@ -93,7 +93,7 @@ export const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({
 
   // Extra user-defined custom fields
   const extraFields = Object.keys(data).filter(
-    k => !['priority', 'status', 'risk', 'effort', 'location', 'cover_image_url', '_definitions'].includes(k)
+    k => !['priority', 'status', 'risk', 'effort', 'location', 'cover_image_url', 'cover_bg_color', '_definitions'].includes(k)
   );
 
   // Active fields list currently on this card
@@ -159,7 +159,7 @@ export const CustomFieldsSection: React.FC<CustomFieldsSectionProps> = ({
 
     // Check if any fields remain
     const remainingKeys = Object.keys(nextData).filter(
-      k => !['location', 'cover_image_url', '_definitions'].includes(k)
+      k => !['location', 'cover_image_url', 'cover_bg_color', '_definitions'].includes(k)
     );
     if (remainingKeys.length === 0) {
       onRemoveAll?.();
