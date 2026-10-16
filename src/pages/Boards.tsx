@@ -1,22 +1,79 @@
+// AUTHOR : NANDHAKUMAR
+// LAST EDIT : 15/10/2026
+// DESC : Workspace Boards Dashboard - lists boards, enterprise templates, board creation workflows, and granular member access control.
 import React, { useEffect, useState } from 'react';
 import { api } from '../api';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Layout, Users, X, Check, 
   Sparkles, Trello, Pipette, Palette, Lock, Globe,
-  Key, RefreshCw, Copy, CheckCircle2, Search, ArrowRight, Briefcase, LayoutGrid, List
+  Key, RefreshCw, Copy, CheckCircle2, Search, ArrowRight, Briefcase, LayoutGrid, List, Trash2,
+  MoreHorizontal, Eye, Shield
 } from 'lucide-react';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
+import AccessChecks from '../components/AccessChecks';
+import { BOARD_CONTROL, cleanAccess, hasAnyAccess, NONE_ACCESS, VIEW_ACCESS, type WorkboardAccess } from '../utils/workboardAccess';
+import CreateTemplateModal from '../components/CreateTemplateModal';
+import { getAllTemplates, deleteCustomTemplate, type BoardTemplate } from '../utils/templates';
 
+/**
+ * Boards Component
+ * Renders the workspace dashboard displaying all boards, quick templates,
+ * layout toggles (grid vs list), and administrative board controls.
+ */
 export default function Boards() {
+
+  /******** USE NAVIGATE *********************/
   const navigate = useNavigate();
   const [boards, setBoards] = useState<any[]>([]);
+  const [hiddenBoards, setHiddenBoards] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [boardView, setBoardView] = useState<'grid' | 'list'>(() => localStorage.getItem('boards_view') === 'list' ? 'list' : 'grid');
 
+  // Current user & admin check
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('currentUser') || '{}');
+    } catch {
+      return {};
+    }
+  });
+
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const username = (currentUser?.username || '').toLowerCase();
+  const isAdmin = ['admin', 'superadmin', 'it_admin'].includes(userRole) || 
+                  username === 'admin' || 
+                  window.location.search.includes('portal_user=admin');
+  const canCreateBoard = isAdmin && (boards.length === 0 ? hiddenBoards.length === 0 : boards.some(board => board.my_permissions?.board_create));
+
+  // Board options 3-dots menu state
+  const [activeBoardMenuId, setActiveBoardMenuId] = useState<string | null>(null);
+
+  // Close 3-dots menu on outside click
+  useEffect(() => {
+    const handleOutsideClick = () => {
+      setActiveBoardMenuId(null);
+    };
+    window.addEventListener('click', handleOutsideClick);
+    return () => window.removeEventListener('click', handleOutsideClick);
+  }, []);
+
+  // Board Member Access Modal State
+  const [memberAccessBoard, setMemberAccessBoard] = useState<any | null>(null);
+  const [loadedAccessMap, setLoadedAccessMap] = useState<Record<string, WorkboardAccess>>({});
+  const [boardMembersLoading, setBoardMembersLoading] = useState(false);
+  const [boardMemberAccessMap, setBoardMemberAccessMap] = useState<Record<string, WorkboardAccess>>({});
+  const [memberAccessSearch, setMemberAccessSearch] = useState('');
+  const [isSavingAccess, setIsSavingAccess] = useState(false);
+  const [accessSaveSuccess, setAccessSaveSuccess] = useState(false);
+
+  /**
+   * Switches workspace layout view between grid and list and saves preference
+   * @param view - 'grid' or 'list'
+   */
   const changeBoardView = (view: 'grid' | 'list') => {
     setBoardView(view);
     localStorage.setItem('boards_view', view);
@@ -42,49 +99,34 @@ export default function Boards() {
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
 
+  /**
+   * Generates a random secure EVOL passcode for private boards
+   * @returns Formatted passcode string like EVOL-4821
+   */
   const generatePasscode = () => {
     const num = Math.floor(1000 + Math.random() * 9000);
     return `EVOL-${num}`;
   };
 
-  const templates = [
-    {
-      id: 'hr',
-      name: 'HR & Recruitment Board',
-      category: 'Human Resources',
-      description: 'Candidate pipeline, interview rounds, offer management, and employee onboarding.',
-      image: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1200&q=80',
-      badge: 'HR / Recruitment',
-      color: '#2563eb'
-    },
-    {
-      id: 'sprint',
-      name: 'Software Sprint Delivery',
-      category: 'Engineering',
-      description: 'Manage agile development, code reviews, QA testing, and sprint releases.',
-      image: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=1200&q=80',
-      badge: 'Agile Sprint',
-      color: '#7c3aed'
-    },
-    {
-      id: 'marketing',
-      name: 'Marketing & Content Pipeline',
-      category: 'Marketing',
-      description: 'Plan campaigns, draft content copy, visual reviews, and multi-channel launches.',
-      image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=1200&q=80',
-      badge: 'Marketing & PR',
-      color: '#db2777'
-    },
-    {
-      id: 'project',
-      name: 'Project Operations & Roadmap',
-      category: 'Operations',
-      description: 'Executive deliverables, milestone tracking, resource planning, and risk audits.',
-      image: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
-      badge: 'Operations',
-      color: '#059669'
-    }
-  ];
+  const [templates, setTemplates] = useState<BoardTemplate[]>(() => getAllTemplates());
+  const [isCreateTemplateModalOpen, setIsCreateTemplateModalOpen] = useState(false);
+
+  useEffect(() => {
+    api.get('/auth/me').then(res => {
+      if (res.data?.user) {
+        setCurrentUser(res.data.user);
+        localStorage.setItem('currentUser', JSON.stringify(res.data.user));
+      }
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const handleTemplatesUpdated = () => {
+      setTemplates(getAllTemplates());
+    };
+    window.addEventListener('templates_updated', handleTemplatesUpdated);
+    return () => window.removeEventListener('templates_updated', handleTemplatesUpdated);
+  }, []);
 
   const gradients = [
     { id: 'gradient-purple', name: 'Purple Sunset', class: 'bg-gradient-to-r from-[#9f3e82] to-[#5a2760]' },
@@ -115,6 +157,9 @@ export default function Boards() {
     loadPortalUsers();
   }, []);
 
+  /**
+   * Fetches all boards and projects for the current workspace
+   */
   const loadData = async () => {
     try {
       setLoading(true);
@@ -123,6 +168,7 @@ export default function Boards() {
         api.get('/projects')
       ]);
       setBoards(boardsRes.data.boards || []);
+      setHiddenBoards(boardsRes.data.hiddenBoards || []);
       setProjects(projectsRes.data.projects || []);
     } catch (err) {
       console.error('Failed to load boards/projects', err);
@@ -131,6 +177,9 @@ export default function Boards() {
     }
   };
 
+  /**
+   * Fetches all active portal team members for assigning and access permissions
+   */
   const loadPortalUsers = async () => {
     try {
       const { data } = await api.get('/auth/users');
@@ -140,6 +189,10 @@ export default function Boards() {
     }
   };
 
+  /**
+   * Computes the CSS style, gradient class, or background image for a new board preview
+   * @returns Background definition object { className, style, raw }
+   */
   const getActiveBackground = () => {
     if (bgType === 'image') {
       return { 
@@ -165,6 +218,12 @@ export default function Boards() {
     return { className: gradClass, style: undefined, raw: gradClass };
   };
 
+  /**
+   * Resolves the visual background style or gradient class for an existing board card
+   * @param board - Board model with background property
+   * @param idx - Index of the board in list for fallback cycle
+   * @returns Visual style object { style, className }
+   */
   const getBoardBg = (board: any, idx: number) => {
     const bg = board.background;
     if (bg) {
@@ -189,7 +248,12 @@ export default function Boards() {
     return { style: undefined, className: fallback };
   };
 
+  /**
+   * Opens the create board modal pre-configured with template settings
+   * @param template - Selected board template
+   */
   const openCreateModalWithTemplate = (template: typeof templates[0]) => {
+    if (!isAdmin) return;
     setSelectedTemplateId(template.id);
     setNewBoardName(template.name);
     setBgType('image');
@@ -198,7 +262,11 @@ export default function Boards() {
     setIsModalOpen(true);
   };
 
+  /**
+   * Opens the create board modal in blank mode with freshly generated passcode
+   */
   const openNewBlankModal = () => {
+    if (!isAdmin) return;
     setSelectedTemplateId(null);
     setNewBoardName('');
     setBgType('gradient');
@@ -207,6 +275,10 @@ export default function Boards() {
     setIsModalOpen(true);
   };
 
+  /**
+   * Submits new board creation to backend and redirects user to new board
+   * @param e - Form submit event
+   */
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBoardName.trim()) return;
@@ -247,11 +319,115 @@ export default function Boards() {
     }
   };
 
+  /**
+   * Copies the generated private board passcode to system clipboard
+   */
   const handleCopyCode = () => {
     if (!accessCode) return;
     navigator.clipboard.writeText(accessCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  /**
+   * Loads existing board member permissions and opens Member Access configuration modal
+   * @param board - Board object being configured
+   */
+  const openMemberAccessModal = async (board: any) => {
+    setMemberAccessBoard(board);
+    setBoardMembersLoading(true);
+    setIsSavingAccess(false);
+    setAccessSaveSuccess(false);
+    setMemberAccessSearch('');
+
+    try {
+      const res = await api.get(`/boards/${board.id}/access`);
+      const map: Record<string, WorkboardAccess> = {};
+      portalUsers.forEach(user => {
+        const role = (user.role || '').toLowerCase();
+        const isBoardAdmin = ['admin', 'it_admin', 'superadmin'].includes(role) || (user.username || '').toLowerCase() === 'admin';
+        map[String(user.id)] = cleanAccess(isBoardAdmin ? BOARD_CONTROL : NONE_ACCESS);
+      });
+      (res.data?.members || []).forEach((member: WorkboardAccess & { user_id: string }) => {
+        map[String(member.user_id)] = cleanAccess(member);
+      });
+      setLoadedAccessMap(map);
+      setBoardMemberAccessMap(map);
+    } catch (err) {
+      console.error('Failed to load board members', err);
+      const fallbackMap: Record<string, WorkboardAccess> = {};
+      portalUsers.forEach(u => { fallbackMap[String(u.id)] = { ...NONE_ACCESS }; });
+      setBoardMemberAccessMap(fallbackMap);
+    } finally {
+      setBoardMembersLoading(false);
+    }
+  };
+
+  /**
+   * Updates an individual member's access level in local modal state
+   * @param userId - Target portal user ID
+   * @param role - Access permission ('edit' | 'view' | 'none')
+   */
+  const handleSetMemberAccess = (userId: string, access: WorkboardAccess) => {
+    setBoardMemberAccessMap(prev => ({ ...prev, [String(userId)]: access }));
+  };
+
+  const handleSetAllRoles = (access: WorkboardAccess) => {
+    setBoardMemberAccessMap(prev => {
+      const updated = { ...prev };
+      portalUsers.forEach(u => { updated[String(u.id)] = { ...access }; });
+      return updated;
+    });
+  };
+
+  /**
+   * Persists all configured member access levels for the selected board to the backend
+   */
+  const handleSaveMemberAccess = async () => {
+    if (!memberAccessBoard) return;
+    try {
+      setIsSavingAccess(true);
+      const membersPayload = Object.entries(boardMemberAccessMap)
+        .filter(([userId, access]) => JSON.stringify(access) !== JSON.stringify(loadedAccessMap[userId] || NONE_ACCESS))
+        .map(([userId, access]) => ({
+          userId,
+          ...access,
+        }));
+
+      await api.put(`/boards/${memberAccessBoard.id}/access`, { members: membersPayload });
+      await loadData();
+      setAccessSaveSuccess(true);
+      setTimeout(() => {
+        setAccessSaveSuccess(false);
+        setMemberAccessBoard(null);
+      }, 1000);
+    } catch (err) {
+      console.error('Failed to save board member access', err);
+      alert('Failed to save member access. Please try again.');
+    } finally {
+      setIsSavingAccess(false);
+    }
+  };
+
+  /**
+   * Deletes a board after administrative confirmation
+   * @param board - Board object to permanently delete
+   */
+  const handleDeleteBoard = async (board: any) => {
+    if (!isAdmin) {
+      alert('Only administrators have permission to delete boards.');
+      return;
+    }
+    const confirmed = window.confirm(`Are you sure you want to delete "${board.name}"?\n\nThis will permanently delete this board, its columns, and all task cards. This action cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await api.delete(`/boards/${board.id}`);
+      setBoards(prev => prev.filter(b => b.id !== board.id));
+    } catch (err) {
+      console.error('Failed to delete board', err);
+      alert('Failed to delete board. Please try again.');
+    }
   };
 
   const activeBg = getActiveBackground();
@@ -329,21 +505,30 @@ export default function Boards() {
           </div>
         )}
 
-        {/* FEATURED TEMPLATES SECTION (HR, Sprint, Marketing, Operations) */}
+        {/* FEATURED TEMPLATES SECTION (HR, Sprint, Marketing, Operations, Custom) */}
         <section className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-base font-bold text-gray-800">
               <Briefcase size={18} className="text-blue-600" />
               <span>Available Templates (Ready to Use)</span>
             </div>
-            <span className="text-xs text-gray-500">Pick a template to instantly generate cards & lists</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 hidden sm:inline">Pick a template to instantly generate cards & lists</span>
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateModalOpen(true)}
+                className="bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800 px-3 py-1.5 rounded-lg text-xs font-bold border border-purple-200/90 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Plus size={13} className="text-purple-600" /> Create Template
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {templates.map(tpl => (
               <div
                 key={tpl.id}
-                onClick={() => openCreateModalWithTemplate(tpl)}
+                onClick={() => canCreateBoard && openCreateModalWithTemplate(tpl)}
                 className="h-36 rounded-xl relative overflow-hidden group cursor-pointer border border-gray-200 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between p-4"
                 style={{
                   backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.4), rgba(0, 0, 0, 0.75)), url("${tpl.image}")`,
@@ -352,11 +537,33 @@ export default function Boards() {
                 }}
               >
                 <div className="flex items-start justify-between">
-                  <span className="bg-white/90 backdrop-blur-xs text-gray-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
-                    {tpl.badge}
-                  </span>
-                  <div className="w-6 h-6 rounded-full bg-white/20 group-hover:bg-white text-white group-hover:text-gray-900 flex items-center justify-center transition-colors">
-                    <ArrowRight size={12} />
+                  <div className="flex items-center gap-1.5">
+                    <span className="bg-white/90 backdrop-blur-xs text-gray-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
+                      {tpl.badge}
+                    </span>
+                    {tpl.isCustom && (
+                      <span className="bg-amber-400 text-amber-950 font-extrabold text-[9px] px-1.5 py-0.2 rounded-full uppercase shadow-xs">
+                        Custom
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {tpl.isCustom && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteCustomTemplate(tpl.id);
+                        }}
+                        className="w-6 h-6 rounded-full bg-black/40 hover:bg-red-600 text-white flex items-center justify-center transition-colors opacity-0 group-hover:opacity-100"
+                        title="Delete template"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                    <div className="w-6 h-6 rounded-full bg-white/20 group-hover:bg-white text-white group-hover:text-gray-900 flex items-center justify-center transition-colors">
+                      <ArrowRight size={12} />
+                    </div>
                   </div>
                 </div>
 
@@ -370,6 +577,24 @@ export default function Boards() {
                 </div>
               </div>
             ))}
+
+            {/* Create Custom Template Card */}
+            <div
+              onClick={() => setIsCreateTemplateModalOpen(true)}
+              className="h-36 rounded-xl border-2 border-dashed border-purple-300 hover:border-purple-500 bg-purple-50/40 hover:bg-purple-50 transition-all flex flex-col items-center justify-center gap-2 p-4 cursor-pointer group shadow-2xs"
+            >
+              <div className="w-10 h-10 rounded-full bg-purple-100 group-hover:bg-purple-600 group-hover:text-white text-purple-700 flex items-center justify-center transition-all shadow-xs">
+                <Plus size={20} />
+              </div>
+              <div className="text-center">
+                <span className="text-xs font-bold text-purple-900 group-hover:text-purple-700 block">
+                  Create Custom Template
+                </span>
+                <span className="text-[11px] text-gray-500 block mt-0.5">
+                  Design lists & cards for your team
+                </span>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -390,6 +615,12 @@ export default function Boards() {
                 <Users size={14} className="text-emerald-600" /> Members ({portalUsers.length})
               </button>
             </div>
+            {!isAdmin && (
+              <p className="text-xs text-gray-500">You only see the boards an admin has opened for you.</p>
+            )}
+            {isAdmin && hiddenBoards.length > 0 && (
+              <p className="text-xs text-gray-500">A board with View turned off is hidden below. Open Member Access on it to show it again.</p>
+            )}
 
             <div className="flex items-center bg-gray-100 p-0.5 rounded-lg text-xs font-semibold text-gray-600 border border-gray-200 self-start sm:self-auto">
               {([['grid', LayoutGrid, 'Grid'], ['list', List, 'List']] as const).map(([view, Icon, label]) => (
@@ -414,10 +645,10 @@ export default function Boards() {
                 const updated = board.updated_at ? new Date(board.updated_at) : null;
 
                 return (
-                  <Link
+                  <div
                     key={board.id}
-                    to={`/boards/${board.id}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+                    onClick={() => navigate(`/boards/${board.id}`)}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group cursor-pointer relative"
                   >
                     <span style={bg.style} className={`w-12 h-8 rounded-md shrink-0 shadow-2xs ${bg.className}`} />
                     <span className="flex-1 min-w-0">
@@ -438,10 +669,76 @@ export default function Boards() {
                         Updated {updated.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     )}
+
+                    {/* Three dots menu */}
+                    <div className="relative shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setActiveBoardMenuId(activeBoardMenuId === board.id ? null : board.id);
+                        }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200/60 transition-colors cursor-pointer"
+                        title="Board options"
+                      >
+                        <MoreHorizontal size={16} />
+                      </button>
+
+                      {activeBoardMenuId === board.id && (
+                        <div 
+                          className="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl shadow-2xl border border-gray-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-left text-gray-800"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveBoardMenuId(null);
+                              navigate(`/boards/${board.id}`);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer text-left"
+                          >
+                            <Eye size={14} className="text-gray-400" />
+                            <span>View Board</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveBoardMenuId(null);
+                              openMemberAccessModal(board);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer text-left"
+                          >
+                            <Users size={14} className="text-emerald-600" />
+                            <span>Member Access</span>
+                          </button>
+
+                          {board.my_permissions?.board_delete && (
+                            <>
+                              <div className="my-1 border-t border-gray-100" />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveBoardMenuId(null);
+                                  handleDeleteBoard(board);
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                              >
+                                <Trash2 size={14} className="text-red-500" />
+                                <span>Delete Board</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
                     <ArrowRight size={14} className="text-gray-400 group-hover:text-blue-600 shrink-0" />
-                  </Link>
+                  </div>
                 );
               })}
+              {canCreateBoard && (
               <button
                 type="button"
                 onClick={openNewBlankModal}
@@ -449,6 +746,7 @@ export default function Boards() {
               >
                 <Plus size={16} /> Create new board
               </button>
+              )}
             </div>
           ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -459,36 +757,105 @@ export default function Boards() {
               const isPrivate = board.visibility === 'private';
 
               return (
-                <Link
+                <div
                   key={board.id}
-                  to={`/boards/${board.id}`}
                   style={bg.style}
-                  className={`h-28 rounded-xl ${bg.className} p-4 flex flex-col justify-between shadow-sm hover:shadow-md hover:brightness-105 transition-all group relative overflow-hidden`}
+                  onClick={() => navigate(`/boards/${board.id}`)}
+                  className={`h-28 rounded-xl ${bg.className} p-4 flex flex-col justify-between shadow-sm hover:shadow-md hover:brightness-105 transition-all group relative cursor-pointer`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="font-bold text-white text-base drop-shadow-sm group-hover:translate-x-0.5 transition-transform line-clamp-2">
+                    <span className="font-bold text-white text-base drop-shadow-sm group-hover:translate-x-0.5 transition-transform line-clamp-2 pr-1">
                       {board.name}
                     </span>
-                    {isPrivate ? (
-                      <span className="bg-black/50 text-amber-300 px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shrink-0 backdrop-blur-xs">
-                        <Lock size={10} /> Private
-                      </span>
-                    ) : (
-                      <span className="bg-black/30 text-white/90 px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 shrink-0 backdrop-blur-xs">
-                        <Globe size={10} /> Public
-                      </span>
-                    )}
+                    
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      {isPrivate ? (
+                        <span className="bg-black/50 text-amber-300 px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 backdrop-blur-xs">
+                          <Lock size={10} /> Private
+                        </span>
+                      ) : (
+                        <span className="bg-black/30 text-white/90 px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1 backdrop-blur-xs">
+                          <Globe size={10} /> Public
+                        </span>
+                      )}
+
+                      {/* Three dots menu button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setActiveBoardMenuId(activeBoardMenuId === board.id ? null : board.id);
+                          }}
+                          className="w-6 h-6 rounded-md bg-black/40 hover:bg-black/70 text-white flex items-center justify-center transition-all cursor-pointer backdrop-blur-xs shadow-xs"
+                          title="Board options"
+                          aria-label="Board options"
+                        >
+                          <MoreHorizontal size={14} />
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {activeBoardMenuId === board.id && (
+                          <div 
+                            className="absolute right-0 top-full mt-1.5 w-48 bg-white rounded-xl shadow-2xl border border-gray-200 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-left text-gray-800"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveBoardMenuId(null);
+                                navigate(`/boards/${board.id}`);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer text-left"
+                            >
+                              <Eye size={14} className="text-gray-400" />
+                              <span>View Board</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveBoardMenuId(null);
+                                openMemberAccessModal(board);
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors cursor-pointer text-left"
+                            >
+                              <Users size={14} className="text-emerald-600" />
+                              <span>Member Access</span>
+                            </button>
+
+                            {board.my_permissions?.board_delete && (
+                              <>
+                                <div className="my-1 border-t border-gray-100" />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveBoardMenuId(null);
+                                    handleDeleteBoard(board);
+                                  }}
+                                  className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                                >
+                                  <Trash2 size={14} className="text-red-500" />
+                                  <span>Delete Board</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   
                   <div className="flex items-center justify-between text-xs text-white/85">
                     <span className="truncate">{board.project_name}</span>
                     <Layout size={14} />
                   </div>
-                </Link>
+                </div>
               );
             })}
 
-            {/* "+ Create new board" Card */}
+            {canCreateBoard && (
             <div 
               onClick={openNewBlankModal}
               className="h-28 rounded-xl bg-white hover:bg-gray-50 border-2 border-dashed border-gray-300 hover:border-blue-500 p-4 flex items-center justify-center cursor-pointer transition-all group shadow-xs"
@@ -497,8 +864,31 @@ export default function Boards() {
                 <Plus size={18} /> Create new board
               </span>
             </div>
+            )}
 
           </div>
+          )}
+          {hiddenBoards.length > 0 && (
+            <div className="mt-2">
+              <h3 className="text-xs font-bold text-gray-500 mb-2">Hidden boards ({hiddenBoards.length})</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {hiddenBoards.map(board => (
+                  <div key={board.id} className="h-24 rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm text-gray-700 truncate">{board.name}</div>
+                      <div className="text-[11px] text-gray-500">View is off, so this board stays hidden.</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openMemberAccessModal(board)}
+                      className="shrink-0 text-xs font-bold text-blue-700 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 cursor-pointer"
+                    >
+                      Member Access
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </section>
 
@@ -870,7 +1260,7 @@ export default function Boards() {
               <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden">
                 {filteredMembers.map((user, idx) => (
                   <div key={user.id || idx} className="p-3 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-xs uppercase">
                         {(user.name || 'U').charAt(0)}
                       </div>
@@ -879,11 +1269,9 @@ export default function Boards() {
                         <div className="text-[11px] text-gray-500 truncate">{memberSubtitle(user)}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className="bg-gray-100 text-gray-700 text-[10px] font-semibold px-2 py-0.5 rounded capitalize">
-                        {user.role || 'Member'}
-                      </span>
-                    </div>
+                    <span className="bg-gray-100 text-gray-700 text-[10px] font-semibold px-2 py-0.5 rounded capitalize">
+                      {user.role || 'Member'}
+                    </span>
                   </div>
                 ))}
                 {filteredMembers.length === 0 && (
@@ -903,6 +1291,190 @@ export default function Boards() {
           </div>
         </div>
       )}
+
+      {/* BOARD MEMBER ACCESS MODAL */}
+      {memberAccessBoard && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          onClick={() => setMemberAccessBoard(null)}
+        >
+          <div 
+            className="bg-white text-gray-800 w-full max-w-3xl rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-8 flex flex-col"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center shadow-2xs">
+                  <Shield size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                    <span>Member Access</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 truncate max-w-sm">
+                    Options for <span className="font-semibold text-gray-700">"{memberAccessBoard.name}"</span> only. Check View to show this board. Leave View unchecked to hide it. Other boards stay as they are.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setMemberAccessBoard(null)} 
+                className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 flex flex-col gap-4 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              
+              {/* Search & Bulk Actions Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Search by name, email, department..." 
+                    value={memberAccessSearch}
+                    onChange={e => setMemberAccessSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-xs text-gray-900 outline-none focus:ring-1 focus:ring-blue-600 transition-all bg-gray-50/50 focus:bg-white"
+                  />
+                </div>
+                
+                {/* Bulk Role Quick Actions */}
+                <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                  <span className="text-[11px] text-gray-500 font-medium mr-1">Set all:</span>
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllRoles(BOARD_CONTROL)}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    All options
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllRoles(VIEW_ACCESS)}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    View only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetAllRoles(NONE_ACCESS)}
+                    className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors cursor-pointer shadow-2xs"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              {/* Members List */}
+              {boardMembersLoading ? (
+                <div className="py-12 flex flex-col items-center justify-center gap-2">
+                  <LoadingSpinner size="md" label="Loading members..." />
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                  {filterMembers(portalUsers, memberAccessSearch).map((user) => {
+                    const currentAccess = boardMemberAccessMap[String(user.id)] || NONE_ACCESS;
+
+                    return (
+                      <div 
+                        key={user.id} 
+                        className="p-3 sm:px-4 flex flex-col gap-3 hover:bg-gray-50/80 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs shadow-xs uppercase shrink-0 ${
+                            hasAnyAccess(currentAccess) ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white'
+                          }`}>
+                            {(user.name || 'U').charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-gray-900 truncate">{user.name}</span>
+                              {user.role && (
+                                <span className="bg-gray-100 text-gray-600 text-[10px] font-medium px-1.5 py-0.2 rounded capitalize">
+                                  {user.role}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-gray-500 truncate">{memberSubtitle(user)}</div>
+                          </div>
+                        </div>
+
+                        <AccessChecks value={currentAccess} onChange={next => handleSetMemberAccess(String(user.id), next)} />
+                      </div>
+                    );
+                  })}
+
+                  {filterMembers(portalUsers, memberAccessSearch).length === 0 && (
+                    <div className="p-8 text-center text-xs text-gray-400">
+                      No members found matching your search.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Status Banner */}
+              {accessSaveSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2 animate-in fade-in duration-150">
+                  <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                  <span>Member access permissions saved to database successfully!</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/80 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-gray-500 flex items-center gap-2 font-medium">
+                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  {Object.values(boardMemberAccessMap).filter(access => hasAnyAccess(access)).length} members on this board
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+                <button 
+                  type="button"
+                  onClick={() => setMemberAccessBoard(null)}
+                  disabled={isSavingAccess}
+                  className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-800 hover:bg-gray-200/60 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveMemberAccess}
+                  disabled={isSavingAccess || boardMembersLoading}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-5 py-2 rounded-lg transition-all shadow-sm active:scale-95 flex items-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {isSavingAccess ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      <span>Save Access</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Create Template Modal */}
+      <CreateTemplateModal
+        isOpen={isCreateTemplateModalOpen}
+        onClose={() => setIsCreateTemplateModalOpen(false)}
+        onCreated={(newTpl) => {
+          openCreateModalWithTemplate(newTpl);
+        }}
+      />
 
     </div>
   );

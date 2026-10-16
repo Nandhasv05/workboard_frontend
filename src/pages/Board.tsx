@@ -1,3 +1,6 @@
+// AUTHOR : NANDHAKUMAR
+// LAST EDIT : 15/10/2026
+// DESC : Kanban Board Workspace - interactive cards, lists, drag & drop, access control, filters, and multi-view switcher.
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
@@ -5,10 +8,10 @@ import {
   Plus, MoreHorizontal, CheckSquare, Square, Star, Lock, 
   Share2, Filter, Layout, Calendar as CalendarIcon, 
   Table, BarChart2, Clock, ChevronDown, Check, 
-  ArrowRightLeft, Inbox, X, Key, Users, 
+  ArrowRightLeft, Inbox, X, Key, 
   ShieldCheck, AlertCircle, Search, Trash2,
   Copy, Maximize2, Minimize2, Globe, ExternalLink, Layers,
-  Zap
+  Zap, Shield, Edit3, Eye, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import { api } from '../api';
 import {
@@ -18,7 +21,8 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
-  useDroppable
+  useDroppable,
+  DragOverlay
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -42,6 +46,10 @@ import { triggerBoardRulesForEvent, checkDueDateAutomations } from '../utils/aut
 import { assigneeIdList, filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 import { appUrl } from '../utils/routing';
 
+import MemberAccessModal, { type AccessRole } from '../components/MemberAccessModal';
+import AccessChecks from '../components/AccessChecks';
+import { BOARD_CONTROL, cleanAccess, FULL_ACCESS, hasAnyAccess, NONE_ACCESS, VIEW_ACCESS, type WorkboardAccess } from '../utils/workboardAccess';
+
 interface Task {
   id: string;
   board_id: string;
@@ -55,6 +63,7 @@ interface Task {
   labels?: string;
   completed?: boolean;
   is_template?: boolean;
+  my_access?: 'edit' | 'view' | 'none';
 }
 
 interface Column {
@@ -63,22 +72,34 @@ interface Column {
   name: string;
   position: number;
   color?: string;
+  my_access?: 'edit' | 'view' | 'none';
+  my_permissions?: WorkboardAccess;
 }
 
+/**
+ * SortableTaskCard Component
+ * Draggable card element displaying labels, title, due date, priority, and completion status
+ */
 function SortableTaskCard({ 
   task, 
   onSelectTask, 
-  onToggleComplete 
+  onToggleComplete,
+  disabled = false
 }: { 
   task: Task; 
   onSelectTask: (t: Task) => void; 
-  onToggleComplete: (e: React.MouseEvent, t: Task) => void 
+  onToggleComplete: (e: React.MouseEvent, t: Task) => void;
+  disabled?: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ 
+    id: String(task.id), 
+    disabled 
+  });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.35 : 1,
+    cursor: disabled ? 'pointer' : 'grab',
   };
 
   const isCompleted = Boolean(task.completed);
@@ -161,6 +182,11 @@ function SortableTaskCard({
   );
 }
 
+/**
+ * DroppableColumn Component
+ * Kanban list column that accepts dropped task cards, allows renaming,
+ * list-level action menus, color changes, and template-based card generation.
+ */
 function DroppableColumn({ 
   column, 
   tasks, 
@@ -179,6 +205,10 @@ function DroppableColumn({
   onCopyList,
   onMoveAllCards,
   onArchiveAllCards,
+  onManageAccess,
+  canCreateCard = true,
+  canDeleteList = true,
+  canDeleteCard = true,
   isFirst,
   isLast,
   isReadOnly,
@@ -204,6 +234,10 @@ function DroppableColumn({
   onCopyList?: (colId: string) => void;
   onMoveAllCards?: (colId: string) => void;
   onArchiveAllCards?: (colId: string) => void;
+  onManageAccess?: (column: Column) => void;
+  canCreateCard?: boolean;
+  canDeleteList?: boolean;
+  canDeleteCard?: boolean;
   isFirst?: boolean;
   isLast?: boolean;
   isReadOnly?: boolean;
@@ -212,7 +246,7 @@ function DroppableColumn({
   onCreateNewTemplate?: (colId: string) => void;
   forceCollapsed?: boolean;
 }) {
-  const { setNodeRef } = useDroppable({ id: column.id });
+  const { setNodeRef, isOver } = useDroppable({ id: String(column.id) });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleText, setTitleText] = useState(column.name);
   const [showMenu, setShowMenu] = useState(false);
@@ -226,6 +260,9 @@ function DroppableColumn({
   const templateButtonRef = useRef<HTMLButtonElement>(null);
   const [templatePosition, setTemplatePosition] = useState<{ top: number; left: number } | null>(null);
 
+  /**
+   * Toggles list actions 3-dots popup with boundary-aware fixed coordinates
+   */
   const handleToggleMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!showMenu && menuButtonRef.current) {
@@ -240,6 +277,9 @@ function DroppableColumn({
     }
   };
 
+  /**
+   * Toggles the card template creation/selection menu for this column
+   */
   const handleToggleTemplateMenu = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!showTemplateMenu && templateButtonRef.current) {
@@ -262,6 +302,9 @@ function DroppableColumn({
     setTitleText(column.name);
   }, [column.name]);
 
+  /**
+   * Saves the updated column title to the server if changed
+   */
   const handleSaveTitle = () => {
     if (titleText.trim() && titleText !== column.name) {
       onRenameColumn(column.id, titleText.trim());
@@ -357,8 +400,38 @@ function DroppableColumn({
           </span>
         </div>
 
-        {/* Right Action Icons: Collapse Toggle & 3-dots Menu */}
+        {/* Right Action Icons: Move List, Collapse Toggle & 3-dots Menu */}
         <div className="flex items-center gap-0.5 shrink-0">
+          {!isReadOnly && !isFirst && onMoveLeft && (
+            <button
+              type="button"
+              onClick={() => onMoveLeft(column.id)}
+              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                hasCustomColor 
+                  ? 'text-white/80 hover:text-white hover:bg-black/20' 
+                  : 'text-gray-400 hover:text-gray-800 hover:bg-gray-200'
+              }`}
+              title="Move list left"
+            >
+              <ChevronLeft size={13} />
+            </button>
+          )}
+
+          {!isReadOnly && !isLast && onMoveRight && (
+            <button
+              type="button"
+              onClick={() => onMoveRight(column.id)}
+              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                hasCustomColor 
+                  ? 'text-white/80 hover:text-white hover:bg-black/20' 
+                  : 'text-gray-400 hover:text-gray-800 hover:bg-gray-200'
+              }`}
+              title="Move list right"
+            >
+              <ChevronRight size={13} />
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => setIsCollapsed(true)}
@@ -432,23 +505,34 @@ function DroppableColumn({
       )}
 
       {/* Droppable Cards Container - ONLY cards scroll here */}
-      <div ref={setNodeRef} className="flex-1 overflow-y-auto px-2.5 py-2 custom-scrollbar min-h-[10px]">
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          <div className="flex flex-col gap-2.5">
+      <div 
+        ref={setNodeRef} 
+        className={`flex-1 overflow-y-auto px-2.5 py-2 custom-scrollbar min-h-[160px] flex flex-col rounded-xl transition-colors ${
+          isOver ? 'bg-blue-50/70 ring-2 ring-blue-500/50 ring-dashed' : ''
+        }`}
+      >
+        <SortableContext items={tasks.map(t => String(t.id))} strategy={verticalListSortingStrategy}>
+          <div className="flex flex-col gap-2.5 flex-1">
             {tasks.map(task => (
               <SortableTaskCard 
                 key={task.id} 
                 task={task} 
                 onSelectTask={onSelectTask} 
                 onToggleComplete={onToggleComplete}
+                disabled={isReadOnly}
               />
             ))}
+            {tasks.length === 0 && (
+              <div className="flex-1 flex flex-col items-center justify-center p-4 border border-dashed border-gray-300 rounded-xl text-gray-400 text-xs text-center min-h-[120px] pointer-events-none select-none">
+                <span className="font-medium text-gray-400">Drop cards here</span>
+              </div>
+            )}
           </div>
         </SortableContext>
       </div>
 
       {/* Pinned Column Footer - NEVER scrolls or clips inside cards list */}
-      {!isReadOnly && (
+      {!isReadOnly && canCreateCard && (
         <div className="px-2.5 pb-2.5 pt-1 shrink-0">
           {addingToCol === column.id ? (
             <div className="flex flex-col gap-2 bg-white p-2.5 rounded-xl border border-blue-500 shadow-sm">
@@ -522,7 +606,7 @@ function DroppableColumn({
             <ListActionsPopover
               columnName={column.name}
               currentColor={column.color}
-              onAddCard={() => setAddingToCol(column.id)}
+              onAddCard={!isReadOnly && canCreateCard ? () => setAddingToCol(column.id) : undefined}
               onCopyList={() => onCopyList?.(column.id)}
               onMoveList={() => {
                 if (onMoveRight && !isLast) onMoveRight(column.id);
@@ -530,8 +614,9 @@ function DroppableColumn({
               }}
               onMoveAllCards={() => onMoveAllCards?.(column.id)}
               onChangeColor={(color) => onChangeColor?.(column.id, color)}
-              onArchiveList={() => setShowDeleteConfirm(true)}
-              onArchiveAllCards={() => onArchiveAllCards?.(column.id)}
+              onArchiveList={!isReadOnly && canDeleteList ? () => setShowDeleteConfirm(true) : undefined}
+              onArchiveAllCards={!isReadOnly && canDeleteCard ? () => onArchiveAllCards?.(column.id) : undefined}
+              onManageAccess={onManageAccess ? () => onManageAccess(column) : undefined}
               onClose={() => setShowMenu(false)}
             />
           </div>
@@ -587,7 +672,6 @@ export default function Board() {
   const { id } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const isFullscreen = searchParams.get('view') === 'fullscreen';
-  const isReadOnly = searchParams.get('mode') === 'view' || isFullscreen || searchParams.get('readonly') === 'true' || searchParams.get('public') === 'true';
 
   const [board, setBoard] = useState<any>(null);
   const [columns, setColumns] = useState<Column[]>([]);
@@ -595,6 +679,45 @@ export default function Board() {
   const [boardMembers, setBoardMembers] = useState<any[]>([]);
   const [portalUsers, setPortalUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Current user info & board access
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem('currentUser') || '{}');
+    } catch {
+      return {};
+    }
+  })();
+  const currentUserId = currentUser?.id ? String(currentUser.id) : undefined;
+  const userRole = (currentUser?.role || '').toLowerCase();
+  const username = (currentUser?.username || '').toLowerCase();
+  const isPortalAdmin = ['admin', 'superadmin', 'it_admin'].includes(userRole) || username === 'admin' || window.location.search.includes('portal_user=admin');
+
+  // Check board-specific member role
+  const currentMemberRecord = boardMembers.find(m => String(m.user_id) === String(currentUserId));
+  const currentMemberRole = (currentMemberRecord?.role || '').toLowerCase();
+
+  const isViewOnlyUser = !isPortalAdmin && ['view', 'viewer'].includes(currentMemberRole);
+  const canManageMembers = isPortalAdmin || ['owner', 'admin', 'edit', 'editor'].includes(currentMemberRole);
+  const [myAccess, setMyAccess] = useState<WorkboardAccess>(isPortalAdmin ? FULL_ACCESS : NONE_ACCESS);
+  const [loadedAccessMap, setLoadedAccessMap] = useState<Record<string, WorkboardAccess>>({});
+  const canChangeThisBoard = myAccess.board_delete || myAccess.list_create || myAccess.list_delete || myAccess.card_create || myAccess.card_delete;
+  const isReadOnly = !canChangeThisBoard || isViewOnlyUser || searchParams.get('mode') === 'view' || isFullscreen || searchParams.get('readonly') === 'true' || searchParams.get('public') === 'true';
+
+  // Drag overlay active task
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // Board Member Access Modal State
+  const [showMemberAccessModal, setShowMemberAccessModal] = useState(false);
+  const [boardMemberAccessMap, setBoardMemberAccessMap] = useState<Record<string, WorkboardAccess>>({});
+  const [memberAccessSearch, setMemberAccessSearch] = useState('');
+  const [isSavingAccess, setIsSavingAccess] = useState(false);
+  const [accessSaveSuccess, setAccessSaveSuccess] = useState(false);
+  const [listAccessColumn, setListAccessColumn] = useState<Column | null>(null);
+  const [listAccessMap, setListAccessMap] = useState<Record<string, AccessRole>>({});
+  const [listAccessInherited, setListAccessInherited] = useState(false);
+  const [listAccessSaving, setListAccessSaving] = useState(false);
+  const [listAccessSaved, setListAccessSaved] = useState(false);
 
   // Share Modal State
   const [showShareModal, setShowShareModal] = useState(false);
@@ -632,9 +755,6 @@ export default function Board() {
 
   // Automation Modal State
   const [showAutomationModal, setShowAutomationModal] = useState(false);
-  // Members Modal State
-  const [showMembersModal, setShowMembersModal] = useState(false);
-  const [boardMemberSearch, setBoardMemberSearch] = useState('');
 
   // Inbox Drawer State
   const [showInbox, setShowInbox] = useState(false);
@@ -651,6 +771,9 @@ export default function Board() {
     loadInbox();
   }, [id]);
 
+  /**
+   * Loads all portal workspace users for card assignment and member access controls
+   */
   const loadPortalUsers = async () => {
     try {
       const { data } = await api.get('/auth/users');
@@ -660,6 +783,9 @@ export default function Board() {
     }
   };
 
+  /**
+   * Loads summary of inbox tasks assigned to the current user
+   */
   const loadInbox = async () => {
     try {
       const { data } = await api.get('/tasks/inbox/summary');
@@ -669,6 +795,9 @@ export default function Board() {
     }
   };
 
+  /**
+   * Fetches full board details, lists/columns, cards, and member permissions
+   */
   const loadBoardData = async () => {
     try {
       setLoading(true);
@@ -685,6 +814,7 @@ export default function Board() {
       const { data: boardData } = await api.get(`/boards/${targetBoardId}`);
       const b = boardData.board;
       setBoard(b);
+      if (b.my_permissions) setMyAccess({ ...NONE_ACCESS, ...b.my_permissions });
       setBoardNameInput(b.name);
       setBoardMembers(b.members || []);
 
@@ -729,6 +859,9 @@ export default function Board() {
     }
   };
 
+  /**
+   * Verifies the entered passcode for private boards and unlocks access
+   */
   const handleUnlockBoard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!passcodeAttempt.trim()) return;
@@ -742,31 +875,42 @@ export default function Board() {
     }
   };
 
-  // Drag and drop handlers
+  /**
+   * Handles drag initiation by recording active drag card id
+   */
+  const handleDragStart = (event: any) => {
+    if (isReadOnly) return;
+    setActiveDragId(String(event.active.id));
+  };
+
+  /**
+   * Dynamically tracks card hover across columns during drag
+   */
   const handleDragOver = (event: any) => {
+    if (isReadOnly) return;
     const { active, over } = event;
     if (!over) return;
     
-    const activeTaskId = active.id;
-    const overId = over.id;
+    const activeTaskId = String(active.id);
+    const overId = String(over.id);
     if (activeTaskId === overId) return;
 
-    const isActiveTask = tasks.some(t => t.id === activeTaskId);
+    const isActiveTask = tasks.some(t => String(t.id) === activeTaskId);
     if (!isActiveTask) return;
 
     // Check if over a column or over another task
-    let destinationColId = columns.find(c => c.id === overId)?.id;
+    let destinationColId = columns.find(c => String(c.id) === overId)?.id;
     if (!destinationColId) {
-      destinationColId = tasks.find(t => t.id === overId)?.columnId;
+      destinationColId = tasks.find(t => String(t.id) === overId)?.columnId;
     }
     if (!destinationColId) return;
 
     setTasks(prev => {
-      const activeIdx = prev.findIndex(t => t.id === activeTaskId);
+      const activeIdx = prev.findIndex(t => String(t.id) === activeTaskId);
       if (activeIdx === -1) return prev;
       
       const currentTask = prev[activeIdx];
-      if (currentTask && currentTask.columnId !== destinationColId) {
+      if (currentTask && String(currentTask.columnId) !== String(destinationColId)) {
         const updated = [...prev];
         updated[activeIdx] = { ...currentTask, columnId: destinationColId };
         return updated;
@@ -775,6 +919,9 @@ export default function Board() {
     });
   };
 
+  /**
+   * Evaluates automation engine rules upon card movement, creation, or completion
+   */
   const evaluateBoardRules = async (
     triggerType: 'card_added_list' | 'card_moved_list' | 'card_marked_complete' | 'member_added',
     eventData: { cardId?: string; listName?: string; card?: any }
@@ -782,13 +929,13 @@ export default function Board() {
     try {
       let taskObj = eventData.card;
       if (!taskObj && eventData.cardId) {
-        taskObj = tasks.find(t => t.id === eventData.cardId);
+        taskObj = tasks.find(t => String(t.id) === String(eventData.cardId));
       }
       if (!taskObj) return;
 
       const colObj = columns.find(c => 
         c.name.toLowerCase() === (eventData.listName || '').toLowerCase() || 
-        c.id === (taskObj.columnId || taskObj.column_id)
+        String(c.id) === String(taskObj.columnId || taskObj.column_id)
       );
 
       let evType: 'CARD_CREATED' | 'CARD_MOVED' | 'CARD_MARKED_COMPLETE' | 'MEMBER_ADDED' = 'CARD_CREATED';
@@ -810,23 +957,33 @@ export default function Board() {
     }
   };
 
+  /**
+   * Finalizes card placement after drop and updates column/position in backend
+   */
   const handleDragEnd = async (event: any) => {
+    setActiveDragId(null);
+    if (isReadOnly) return;
     const { active, over } = event;
     if (!over) return;
 
-    const activeTaskId = active.id;
-    const overId = over.id;
+    const activeTaskId = String(active.id);
+    const overId = String(over.id);
 
-    let destinationColId = columns.find(c => c.id === overId)?.id;
+    let destinationColId = columns.find(c => String(c.id) === overId)?.id;
     if (!destinationColId) {
-      destinationColId = tasks.find(t => t.id === overId)?.columnId;
+      destinationColId = tasks.find(t => String(t.id) === overId)?.columnId;
     }
     if (!destinationColId) return;
+    const sourceTask = tasks.find(t => String(t.id) === activeTaskId);
+    const destinationColumn = columns.find(c => String(c.id) === String(destinationColId));
+    if (sourceTask?.my_access === 'view' || destinationColumn?.my_access === 'view' || destinationColumn?.my_access === 'none') return;
 
     let movedTask: any = null;
+    let targetIndex = 0;
+
     setTasks(prev => {
-      const activeIdx = prev.findIndex(t => t.id === activeTaskId);
-      const overIdx = prev.findIndex(t => t.id === overId);
+      const activeIdx = prev.findIndex(t => String(t.id) === activeTaskId);
+      const overIdx = prev.findIndex(t => String(t.id) === overId);
       if (activeIdx === -1) return prev;
       const currentTask = prev[activeIdx];
       if (!currentTask) return prev;
@@ -837,6 +994,7 @@ export default function Board() {
 
       if (overIdx !== -1 && activeIdx !== overIdx) {
         updated = arrayMove(updated, activeIdx, overIdx);
+        targetIndex = overIdx;
       }
       return updated;
     });
@@ -844,9 +1002,9 @@ export default function Board() {
     try {
       await api.patch(`/tasks/${activeTaskId}/move`, {
         columnId: destinationColId,
-        position: 0
+        position: targetIndex
       });
-      const destCol = columns.find(c => c.id === destinationColId);
+      const destCol = columns.find(c => String(c.id) === String(destinationColId));
       evaluateBoardRules('card_moved_list', { 
         cardId: activeTaskId, 
         listName: destCol?.name,
@@ -857,6 +1015,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Adds a new card to the specified list column
+   * @param columnId - Target list column ID
+   */
   const handleAddTask = async (columnId: string) => {
     if (!newTaskTitle.trim()) {
       setAddingToCol(null);
@@ -884,6 +1046,9 @@ export default function Board() {
     }
   };
 
+  /**
+   * Appends a new column to the current board
+   */
   const handleAddColumn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newListName.trim()) return;
@@ -901,6 +1066,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Renames a column on the board
+   * @param colId - Column ID
+   * @param newName - New column display name
+   */
   const handleRenameColumn = async (colId: string, newName: string) => {
     try {
       await api.put(`/boards/columns/${colId}`, { name: newName });
@@ -910,6 +1080,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Permanently deletes a column and all contained cards
+   * @param colId - Column ID to delete
+   */
   const handleDeleteColumn = async (colId: string) => {
     try {
       await api.delete(`/boards/columns/${colId}`);
@@ -921,6 +1095,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Shifts column position left or right on the board
+   * @param colId - Column ID
+   * @param direction - Direction ('left' or 'right')
+   */
   const handleMoveColumn = async (colId: string, direction: 'left' | 'right') => {
     const idx = columns.findIndex(c => c.id === colId);
     if (idx === -1) return;
@@ -944,6 +1123,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Updates column accent header color
+   * @param colId - Column ID
+   * @param color - Hex color string or null for default
+   */
   const handleChangeColumnColor = async (colId: string, color: string | null) => {
     try {
       await api.put(`/boards/columns/${colId}`, { color });
@@ -953,6 +1137,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Duplicates a column and all its task cards
+   * @param colId - Source column ID to copy
+   */
   const handleCopyColumn = async (colId: string) => {
     try {
       await api.post(`/boards/columns/${colId}/copy`);
@@ -962,6 +1150,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Moves all task cards from a source column to a target column
+   * @param sourceColId - Source column ID
+   */
   const handleMoveAllCards = async (sourceColId: string) => {
     const otherCols = columns.filter(c => c.id !== sourceColId);
     if (otherCols.length === 0) {
@@ -983,6 +1175,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Deletes/archives all task cards in a specified column
+   * @param colId - Column ID
+   */
   const handleArchiveAllCards = async (colId: string) => {
     if (!confirm('Are you sure you want to archive/delete all cards in this list?')) return;
     try {
@@ -993,12 +1189,20 @@ export default function Board() {
     }
   };
 
+  /**
+   * Helper to copy share URLs or passcodes to clipboard with temporary feedback
+   * @param text - Text string to copy
+   * @param type - Feedback badge identifier
+   */
   const handleCopy = (text: string, type: 'fullscreen' | 'workspace' | 'passcode') => {
     navigator.clipboard.writeText(text);
     setCopiedLink(type);
     setTimeout(() => setCopiedLink(null), 2500);
   };
 
+  /**
+   * Toggles board visibility between public and private with passcode protection
+   */
   const handleToggleVisibility = async () => {
     if (!board) return;
     const nextVis = board.visibility === 'private' ? 'public' : 'private';
@@ -1013,6 +1217,9 @@ export default function Board() {
     }
   };
 
+  /**
+   * Saves edited board title to server
+   */
   const handleSaveBoardName = async () => {
     if (!boardNameInput.trim() || boardNameInput === board.name) {
       setIsEditingBoardName(false);
@@ -1027,6 +1234,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Toggles card completed checkbox state
+   * @param e - Mouse event
+   * @param task - Target Task object
+   */
   const handleToggleCardComplete = async (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
     const updated = !task.completed;
@@ -1045,6 +1257,10 @@ export default function Board() {
     }
   };
 
+  /**
+   * Toggles task completion by ID
+   * @param taskId - ID of the task
+   */
   const handleToggleCardCompleteById = async (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -1064,6 +1280,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Moves a task to a designated column by ID
+   * @param taskId - Task ID
+   * @param targetColId - Destination column ID
+   */
   const handleMoveTaskToColumn = async (taskId: string, targetColId: string) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, columnId: targetColId } : t));
     try {
@@ -1073,6 +1294,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Directly creates a task from table or list row input
+   * @param columnId - Column ID
+   * @param title - Task title
+   */
   const handleAddDirectTask = async (columnId: string, title: string) => {
     if (!title.trim() || !board) return;
     try {
@@ -1088,6 +1314,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Creates a card with an explicit scheduled calendar date
+   * @param dateStr - Date string (YYYY-MM-DD)
+   * @param title - Task title
+   */
   const handleAddTaskWithDate = async (dateStr: string, title: string) => {
     if (!title.trim() || !columns[0] || !board) return;
     try {
@@ -1104,31 +1335,121 @@ export default function Board() {
     }
   };
 
-  const handleAddMemberToBoard = async (userId: string) => {
+  /**
+   * Opens the board member permissions modal and loads current role assignments
+   */
+  const accessFromMembers = (members: { user_id: string; role?: string }[]) => {
+    const map: Record<string, AccessRole> = {};
+    portalUsers.forEach(user => { map[String(user.id)] = 'none'; });
+    members.forEach(member => {
+      const role = (member.role || '').toLowerCase();
+      map[String(member.user_id)] = role === 'view' || role === 'viewer' ? 'view' : 'edit';
+    });
+    return map;
+  };
+
+  const openListAccess = async (column: Column) => {
     try {
-      const { data } = await api.post(`/boards/${board.id}/members`, { userId });
-      setBoardMembers(data.members || []);
+      const { data } = await api.get(`/boards/columns/${column.id}/members`);
+      setListAccessMap(accessFromMembers(data.members || []));
+      setListAccessInherited(!!data.inherited);
+      setListAccessSaved(false);
+      setListAccessColumn(column);
     } catch (err) {
-      console.error('Failed to add member to board', err);
+      console.error('Failed to load list access', err);
+      alert('Could not load member access for this list.');
     }
   };
 
-  const handleRemoveMemberFromBoard = async (userId: string) => {
+  const saveListAccess = async () => {
+    if (!listAccessColumn) return;
     try {
-      const { data } = await api.delete(`/boards/${board.id}/members/${userId}`);
-      setBoardMembers(data.members || []);
+      setListAccessSaving(true);
+      const members = Object.entries(listAccessMap).map(([userId, role]) => ({ userId, role }));
+      await api.put(`/boards/columns/${listAccessColumn.id}/members`, { members });
+      setListAccessSaved(true);
+      await loadBoardData();
+      setTimeout(() => setListAccessColumn(null), 600);
     } catch (err) {
-      console.error('Failed to remove member from board', err);
+      console.error('Failed to save list access', err);
+      alert('Failed to save list access. You need edit access to change it.');
+    } finally {
+      setListAccessSaving(false);
+    }
+  };
+
+  const openMemberAccessModal = async () => {
+    if (!board) return;
+    const map: Record<string, WorkboardAccess> = {};
+    portalUsers.forEach(user => {
+      const role = (user.role || '').toLowerCase();
+      const isBoardAdmin = ['admin', 'it_admin', 'superadmin'].includes(role) || (user.username || '').toLowerCase() === 'admin';
+      map[String(user.id)] = cleanAccess(isBoardAdmin ? BOARD_CONTROL : NONE_ACCESS);
+    });
+    try {
+      const { data } = await api.get(`/boards/${board.id}/access`);
+      (data.members || []).forEach((member: WorkboardAccess & { user_id: string }) => {
+        map[String(member.user_id)] = cleanAccess(member);
+      });
+    } catch (err) {
+      console.error('Failed to load board access', err);
+    }
+    setLoadedAccessMap(map);
+    setBoardMemberAccessMap(map);
+    setMemberAccessSearch('');
+    setAccessSaveSuccess(false);
+    setShowMemberAccessModal(true);
+  };
+
+  /**
+   * Sets access role for an individual team member in modal state
+   * @param userId - Portal user ID
+   * @param role - Role string ('edit' | 'view' | 'none')
+   */
+  const handleSetMemberAccess = (userId: string, access: WorkboardAccess) => {
+    setBoardMemberAccessMap(prev => ({ ...prev, [String(userId)]: access }));
+  };
+
+  const handleSetAllRoles = (access: WorkboardAccess) => {
+    setBoardMemberAccessMap(prev => {
+      const updated = { ...prev };
+      portalUsers.forEach(u => { updated[String(u.id)] = { ...access }; });
+      return updated;
+    });
+  };
+
+  /**
+   * Persists modified board member access roles to backend and updates local permissions
+   */
+  const handleSaveMemberAccess = async () => {
+    if (!board) return;
+    try {
+      setIsSavingAccess(true);
+      const membersPayload = Object.entries(boardMemberAccessMap)
+        .filter(([userId, access]) => JSON.stringify(access) !== JSON.stringify(loadedAccessMap[userId] || NONE_ACCESS))
+        .map(([userId, access]) => ({
+          userId,
+          ...access,
+        }));
+      await api.put(`/boards/${board.id}/access`, {
+        members: membersPayload
+      });
+      await loadBoardData();
+      setAccessSaveSuccess(true);
+      setTimeout(() => {
+        setAccessSaveSuccess(false);
+        setShowMemberAccessModal(false);
+      }, 800);
+    } catch (err) {
+      console.error('Failed to update board member access', err);
+      alert('Failed to save access permissions. Please try again.');
+    } finally {
+      setIsSavingAccess(false);
     }
   };
 
   const shareWorkspaceUrl = board ? appUrl(`/boards/${board.id}`) : '';
   const shareFullscreenUrl = board ? appUrl(`/boards/${board.id}?view=fullscreen&mode=view`) : '';
-
-  const addableMembers = filterMembers(
-    portalUsers.filter(u => !boardMembers.some(m => m.user_id === u.id)),
-    boardMemberSearch
-  );
 
   if (loading) {
     return (
@@ -1211,6 +1532,10 @@ export default function Board() {
   // Template cards identification
   const templateCards = tasks.filter(t => Boolean(t.is_template || t.description?.includes('<!--is_template:true-->')));
 
+  /**
+   * Generates a new card template marked with template flag in markdown
+   * @param colId - Column ID where template resides
+   */
   const handleCreateNewTemplate = async (colId: string) => {
     try {
       const { data } = await api.post('/tasks', {
@@ -1233,6 +1558,11 @@ export default function Board() {
     }
   };
 
+  /**
+   * Instantiates a new actionable card based on a selected template
+   * @param colId - Target column ID
+   * @param templateTask - Source template card
+   */
   const handleCreateCardFromTemplate = async (colId: string, templateTask: Task) => {
     try {
       const cleanDesc = (templateTask.description || '').replace(/<!--is_template:true-->/g, '').trim();
@@ -1257,16 +1587,10 @@ export default function Board() {
     }
   };
 
-  // Current logged in user ID
-  let currentUserId: string | undefined;
-  try {
-    const cu = JSON.parse(localStorage.getItem('currentUser') || '{}');
-    currentUserId = cu?.id;
-  } catch (e) {
-    // ignore
-  }
-
-  // Active filters count
+  /**
+   * Calculates total count of active search/filter criteria applied to board
+   * @returns Active filter rule count
+   */
   const getActiveFiltersCount = () => {
     let count = 0;
     if (filterState.keyword.trim()) count++;
@@ -1282,6 +1606,7 @@ export default function Board() {
 
   // Filter Tasks logic supporting 'any' or 'all' match mode
   const filteredTasks = tasks.filter(t => {
+    if (t.my_access === 'none') return false;
     if (activeFiltersCount === 0) return true;
 
     const tests: { active: boolean; passed: boolean }[] = [];
@@ -1578,6 +1903,14 @@ export default function Board() {
             <Star size={16} fill={isStarred ? 'currentColor' : 'none'} />
           </button>
 
+          {/* View Only indicator */}
+          {isReadOnly && (
+            <div className="flex items-center gap-1.5 bg-amber-500/20 text-amber-200 border border-amber-400/30 px-2.5 py-1 rounded-lg text-xs font-bold shrink-0">
+              <Eye size={13} />
+              <span>View Only</span>
+            </div>
+          )}
+
           {/* Visibility indicator */}
           <div className="relative shrink-0">
             {board.visibility === 'private' ? (
@@ -1617,29 +1950,32 @@ export default function Board() {
         <div className="flex items-center gap-1 sm:gap-1.5 md:gap-2 shrink-0">
           {/* Board Members Avatar Stack */}
           <div 
-            onClick={() => setShowMembersModal(true)}
+            onClick={openMemberAccessModal}
             className="flex items-center -space-x-1.5 cursor-pointer hover:opacity-90 transition-opacity mr-0.5 sm:mr-1 shrink-0" 
-            title="View & manage board members"
+            title="View & manage member access"
           >
-            {boardMembers.slice(0, 2).map((m, idx) => (
+            {boardMembers.slice(0, 3).map((m, idx) => (
               <div 
                 key={m.user_id || idx}
-                className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs uppercase"
+                className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs uppercase ${
+                  (m.role || '').toLowerCase() === 'view' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'
+                }`}
+                title={`${m.name} (${m.role || 'Member'})`}
               >
                 {(m.name || 'U').charAt(0)}
               </div>
             ))}
-            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs">
-              <Users size={11} />
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center justify-center text-[10px] ring-2 ring-white shadow-xs" title="Manage member permissions">
+              <Shield size={11} />
             </div>
           </div>
 
           <button 
-            onClick={() => setShowMembersModal(true)}
+            onClick={openMemberAccessModal}
             className="flex items-center gap-1 text-gray-700 hover:text-gray-900 hover:bg-gray-100 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors border border-gray-200 shrink-0"
-            title="Add member"
+            title="Manage member access control"
           >
-            <Plus size={13} /> <span className="hidden sm:inline">Member</span>
+            <Shield size={13} className="text-blue-600" /> <span className="hidden sm:inline">Member Access</span>
           </button>
 
           <button 
@@ -1703,18 +2039,20 @@ export default function Board() {
           <DndContext 
             sensors={sensors} 
             collisionDetection={closestCorners} 
+            onDragStart={handleDragStart}
             onDragOver={handleDragOver} 
             onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveDragId(null)}
           >
-            {columns.map((col, colIdx) => {
-              const colTasks = filteredTasks.filter(t => t.columnId === col.id);
+            {columns.filter(col => col.my_access !== 'none' && (col.my_permissions?.list_view ?? myAccess.list_view)).map((col, colIdx) => {
+              const colTasks = filteredTasks.filter(t => (col.my_permissions?.card_view ?? myAccess.card_view) && String(t.columnId) === String(col.id) && t.my_access !== 'none');
 
               return (
                 <DroppableColumn
                   key={col.id}
                   column={col}
                   tasks={colTasks}
-                  onSelectTask={t => setSelectedTaskId(t.id)}
+                  onSelectTask={t => { if (myAccess.card_view) setSelectedTaskId(t.id); }}
                   onToggleComplete={handleToggleCardComplete}
                   addingToCol={addingToCol}
                   newTaskTitle={newTaskTitle}
@@ -1729,9 +2067,13 @@ export default function Board() {
                   onCopyList={handleCopyColumn}
                   onMoveAllCards={handleMoveAllCards}
                   onArchiveAllCards={handleArchiveAllCards}
+                  onManageAccess={openListAccess}
+                  canCreateCard={col.my_permissions?.card_create ?? myAccess.card_create}
+                  canDeleteList={col.my_permissions?.list_delete ?? myAccess.list_delete}
+                  canDeleteCard={col.my_permissions?.card_delete ?? myAccess.card_delete}
                   isFirst={colIdx === 0}
                   isLast={colIdx === columns.length - 1}
-                  isReadOnly={isReadOnly}
+                  isReadOnly={isReadOnly || col.my_access === 'view'}
                   templateCards={templateCards}
                   onCreateCardFromTemplate={handleCreateCardFromTemplate}
                   onCreateNewTemplate={handleCreateNewTemplate}
@@ -1739,10 +2081,27 @@ export default function Board() {
                 />
               );
             })}
+
+            <DragOverlay>
+              {activeDragId ? (() => {
+                const dragTask = tasks.find(t => String(t.id) === String(activeDragId));
+                if (!dragTask) return null;
+                return (
+                  <div className="rotate-2 scale-105 shadow-2xl pointer-events-none opacity-95">
+                    <SortableTaskCard 
+                      task={dragTask} 
+                      onSelectTask={() => {}} 
+                      onToggleComplete={() => {}}
+                      disabled 
+                    />
+                  </div>
+                );
+              })() : null}
+            </DragOverlay>
           </DndContext>
 
           {/* Add Another List (hidden in read-only view) */}
-          {!isReadOnly && (
+          {!isReadOnly && myAccess.list_create && (
             <div className="w-[285px] shrink-0">
               {isAddingList ? (
                 <form onSubmit={handleAddColumn} className="bg-[#ebecf0] p-3 rounded-2xl border border-gray-300 shadow-sm flex flex-col gap-2">
@@ -1948,97 +2307,185 @@ export default function Board() {
         </div>
       )}
 
-      {/* BOARD MEMBERS MODAL */}
-      {showMembersModal && (
-        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setShowMembersModal(false)}>
+      {listAccessColumn && (
+        <MemberAccessModal
+          title="List member access"
+          subjectName={listAccessColumn.name}
+          hint="Only this list. Other lists and other boards stay unchanged. Who can change cards in"
+          users={portalUsers}
+          accessMap={listAccessMap}
+          canManage={canManageMembers || listAccessColumn.my_access === 'edit'}
+          inherited={listAccessInherited}
+          saving={listAccessSaving}
+          saved={listAccessSaved}
+          onChange={(userId, role) => setListAccessMap(prev => ({ ...prev, [userId]: role }))}
+          onSetAll={role => setListAccessMap(prev => {
+            const next = { ...prev };
+            portalUsers.forEach(user => { next[String(user.id)] = role; });
+            return next;
+          })}
+          onSave={saveListAccess}
+          onClose={() => setListAccessColumn(null)}
+        />
+      )}
+
+      {/* BOARD MEMBER ACCESS CONTROL MODAL */}
+      {showMemberAccessModal && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in"
+          onClick={() => setShowMemberAccessModal(false)}
+        >
           <div 
-            className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in fade-in zoom-in-95"
+            className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]"
             onClick={e => e.stopPropagation()}
           >
-            <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users size={18} className="text-emerald-600" />
-                <h3 className="font-bold text-gray-900 text-base">Board Members</h3>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  {boardMembers.length}
-                </span>
+            {/* Modal Header */}
+            <div className="px-6 py-4 flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-gray-50 to-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center shadow-2xs">
+                  <Shield size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                    <span>Board Member Access</span>
+                    <span className="text-xs font-normal text-gray-500">({portalUsers.length} total members)</span>
+                  </h3>
+                  <p className="text-xs text-gray-500 truncate max-w-sm">
+                    Options for <span className="font-semibold text-gray-700">"{board?.name}"</span> only. Check View to show this board. Leave View unchecked to hide it.
+                  </p>
+                </div>
               </div>
-              <button onClick={() => setShowMembersModal(false)} className="text-gray-400 hover:text-gray-700 p-1 rounded">
+              <button 
+                onClick={() => setShowMemberAccessModal(false)} 
+                className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+              >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="p-6 flex flex-col gap-5">
-              {/* Add Member Search */}
-              <div className="flex flex-col gap-2">
-                <div className="relative">
+            {/* Modal Body */}
+            <div className="p-6 flex flex-col gap-4 overflow-y-auto custom-scrollbar flex-1">
+              
+              {/* Search & Bulk Actions Bar */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search portal users by name, username, emp code, department..."
-                    value={boardMemberSearch}
-                    onChange={e => setBoardMemberSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-xs text-gray-800 outline-none focus:ring-1 focus:ring-blue-600"
+                  <input 
+                    type="text" 
+                    placeholder="Search by name, email, department, username..." 
+                    value={memberAccessSearch}
+                    onChange={e => setMemberAccessSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-xs text-gray-900 outline-none focus:ring-1 focus:ring-blue-600 transition-all bg-gray-50/50 focus:bg-white"
                   />
                 </div>
-                {boardMemberSearch.trim() && (
-                  <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
-                    {addableMembers.map(u => (
-                      <div key={u.id} className="px-3 py-2 flex items-center justify-between gap-3 hover:bg-gray-50">
-                        <div className="min-w-0">
-                          <div className="text-xs font-bold text-gray-900 truncate">{u.name}</div>
-                          <div className="text-[10px] text-gray-500 truncate">{memberSubtitle(u)}</div>
-                        </div>
-                        <button
-                          onClick={() => handleAddMemberToBoard(u.id)}
-                          className="bg-[#0052cc] hover:bg-[#0065ff] text-white text-[11px] font-bold px-3 py-1 rounded-md transition-colors shrink-0"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    ))}
-                    {addableMembers.length === 0 && (
-                      <div className="p-3 text-center text-xs text-gray-400">No matching users to add.</div>
-                    )}
+                
+                {/* Bulk Role Quick Actions */}
+                {isPortalAdmin && (
+                  <div className="flex items-center gap-1.5 self-end sm:self-auto shrink-0">
+                    <span className="text-[11px] text-gray-500 font-medium mr-1">Set all:</span>
+                    <button
+                      type="button"
+                      onClick={() => handleSetAllRoles(BOARD_CONTROL)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      All options
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetAllRoles(VIEW_ACCESS)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      View only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetAllRoles(NONE_ACCESS)}
+                      className="px-2.5 py-1 text-[11px] font-bold rounded-md bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors cursor-pointer shadow-2xs"
+                    >
+                      Clear All
+                    </button>
                   </div>
                 )}
               </div>
 
               {/* Members List */}
-              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
-                {boardMembers.map(m => (
-                  <div key={m.user_id} className="p-3 flex items-center justify-between hover:bg-gray-50">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs uppercase">
-                        {(m.name || 'U').charAt(0)}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-gray-900">{m.name}</div>
-                        <div className="text-[10px] text-gray-500">{memberSubtitle(m)} &bull; <span className="capitalize">{m.role}</span></div>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => handleRemoveMemberFromBoard(m.user_id)}
-                      className="text-gray-400 hover:text-red-600 p-1 rounded transition-colors"
-                      title="Remove from board"
+              <div className="divide-y divide-gray-100 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                {filterMembers(portalUsers, memberAccessSearch).map((user) => {
+                  const currentAccess = boardMemberAccessMap[String(user.id)] || NONE_ACCESS;
+
+                  return (
+                    <div 
+                      key={user.id} 
+                      className="p-3 sm:px-4 flex flex-col gap-3 hover:bg-gray-50/80 transition-colors"
                     >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))}
-                {boardMembers.length === 0 && (
-                  <div className="p-4 text-center text-xs text-gray-400">No members added to this board yet.</div>
-                )}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-8 h-8 rounded-full font-bold flex items-center justify-center text-xs shadow-xs uppercase shrink-0 ${
+                          hasAnyAccess(currentAccess) ? 'bg-blue-600 text-white' : 'bg-gray-400 text-white'
+                        }`}>
+                          {(user.name || 'U').charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-900 truncate">{user.name}</span>
+                            {user.role && (
+                              <span className="bg-gray-100 text-gray-600 text-[10px] font-medium px-1.5 py-0.2 rounded capitalize">
+                                {user.role}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-gray-500 truncate">{memberSubtitle(user)}</div>
+                        </div>
+                      </div>
+
+                      {isPortalAdmin ? (
+                        <AccessChecks value={currentAccess} onChange={next => handleSetMemberAccess(String(user.id), next)} />
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-gray-100 text-gray-600">
+                          {hasAnyAccess(currentAccess) ? 'Granted on this board' : 'No access'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="px-6 py-3 border-t border-gray-100 bg-gray-50 flex justify-end">
-              <button 
-                onClick={() => setShowMembersModal(false)}
-                className="bg-white border border-gray-300 text-gray-700 text-xs font-semibold px-4 py-2 rounded-lg hover:bg-gray-100"
-              >
-                Close
-              </button>
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 border-t border-gray-100 bg-gray-50 flex items-center justify-between shrink-0">
+              <div className="text-xs text-gray-500">
+                {Object.values(boardMemberAccessMap).filter(access => hasAnyAccess(access)).length} members on this board
+              </div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setShowMemberAccessModal(false)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                {isPortalAdmin && (
+                  <button 
+                    type="button"
+                    disabled={isSavingAccess}
+                    onClick={handleSaveMemberAccess}
+                    className="flex items-center gap-1.5 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isSavingAccess ? (
+                      <>
+                        <LoadingSpinner size="xs" />
+                        <span>Saving...</span>
+                      </>
+                    ) : accessSaveSuccess ? (
+                      <>
+                        <Check size={14} className="text-white" />
+                        <span>Saved!</span>
+                      </>
+                    ) : (
+                      <span>Save Permissions</span>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2052,6 +2499,8 @@ export default function Board() {
         onTaskUpdated={loadBoardData}
         onOpenAutomationDirectory={() => setShowAutomationModal(true)}
         readOnly={isReadOnly}
+        allowDelete={myAccess.card_delete}
+        allowCreate={myAccess.card_create}
       />
 
       {/* Share Board Modal (Public URL, Private URL, Full Screen Presentation) */}

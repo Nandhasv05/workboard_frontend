@@ -22,15 +22,16 @@ export const LIST_COLORS: ListColor[] = [
 interface ListActionsPopoverProps {
   columnName: string;
   currentColor?: string | null;
-  onAddCard: () => void;
+  onAddCard?: () => void;
   onCopyList: () => void;
   onMoveList: () => void;
   onMoveAllCards: () => void;
   onWatchToggle?: () => void;
   isWatching?: boolean;
   onChangeColor: (color: string | null) => void;
-  onArchiveList: () => void;
-  onArchiveAllCards: () => void;
+  onArchiveList?: () => void;
+  onArchiveAllCards?: () => void;
+  onManageAccess?: () => void;
   onClose: () => void;
 }
 
@@ -46,6 +47,7 @@ export const ListActionsPopover: React.FC<ListActionsPopoverProps> = ({
   onChangeColor,
   onArchiveList,
   onArchiveAllCards,
+  onManageAccess,
   onClose
 }) => {
   const [showColorSection, setShowColorSection] = useState(true);
@@ -78,13 +80,25 @@ export const ListActionsPopover: React.FC<ListActionsPopoverProps> = ({
 
       {/* Main List Actions */}
       <div className="flex flex-col gap-0.5">
-        <button
-          type="button"
-          onClick={() => { onClose(); onAddCard(); }}
-          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-[#091e420f] transition-colors cursor-pointer text-xs font-normal"
-        >
-          Add card
-        </button>
+        {onAddCard && (
+          <button
+            type="button"
+            onClick={() => { onClose(); onAddCard?.(); }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-[#091e420f] transition-colors cursor-pointer text-xs font-normal"
+          >
+            Add card
+          </button>
+        )}
+
+        {onManageAccess && (
+          <button
+            type="button"
+            onClick={() => { onClose(); onManageAccess(); }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-[#091e420f] transition-colors cursor-pointer text-xs font-normal"
+          >
+            Member access
+          </button>
+        )}
 
         <button
           type="button"
@@ -202,23 +216,29 @@ export const ListActionsPopover: React.FC<ListActionsPopoverProps> = ({
       <div className="border-t border-[#091e4214] my-2" />
 
       {/* Archive / Delete actions */}
+      {(onArchiveList || onArchiveAllCards) && (
       <div className="flex flex-col gap-0.5">
-        <button
-          type="button"
-          onClick={() => { onClose(); onArchiveList(); }}
-          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer text-xs font-normal"
-        >
-          Archive this list
-        </button>
+        {onArchiveList && (
+          <button
+            type="button"
+            onClick={() => { onClose(); onArchiveList?.(); }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer text-xs font-normal"
+          >
+            Archive this list
+          </button>
+        )}
 
-        <button
-          type="button"
-          onClick={() => { onClose(); onArchiveAllCards(); }}
-          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer text-xs font-normal"
-        >
-          Archive all cards in this list
-        </button>
+        {onArchiveAllCards && (
+          <button
+            type="button"
+            onClick={() => { onClose(); onArchiveAllCards?.(); }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[#172b4d] hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer text-xs font-normal"
+          >
+            Archive all cards in this list
+          </button>
+        )}
       </div>
+      )}
     </div>
   );
 };

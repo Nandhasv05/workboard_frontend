@@ -4,11 +4,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useSearchParams } from 'react-router-dom';
 import {
   Trello, Clock, Star, Users, Search, Plus,
-  Bell, ChevronDown, Sparkles, X, CheckCheck
+  Bell, ChevronDown, Sparkles, X, CheckCheck, Trash2
 } from 'lucide-react';
 import { api } from '../api';
 import CreateBoardModal, { TEMPLATES } from '../components/CreateBoardModal';
+import CreateTemplateModal from '../components/CreateTemplateModal';
 import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
+import { getAllTemplates, deleteCustomTemplate, type BoardTemplate } from '../utils/templates';
 
 export default function AppLayout() {
   const [searchParams] = useSearchParams();
@@ -24,6 +26,16 @@ export default function AppLayout() {
   // Global Create Board Modal State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createModalTemplateId, setCreateModalTemplateId] = useState<string | null>(null);
+  const [isCreateTemplateModalOpen, setIsCreateTemplateModalOpen] = useState(false);
+  const [templatesList, setTemplatesList] = useState<BoardTemplate[]>(() => getAllTemplates());
+
+  useEffect(() => {
+    const handleTemplatesUpdated = () => {
+      setTemplatesList(getAllTemplates());
+    };
+    window.addEventListener('templates_updated', handleTemplatesUpdated);
+    return () => window.removeEventListener('templates_updated', handleTemplatesUpdated);
+  }, []);
 
   // Boards and User State
   const [boards, setBoards] = useState<any[]>([]);
@@ -44,6 +56,14 @@ export default function AppLayout() {
     }
   });
   const [members, setMembers] = useState<PortalUser[]>([]);
+
+  // Dropdown Refs for Click Outside
+  const boardRef = useRef<HTMLDivElement>(null);
+  const recentRef = useRef<HTMLDivElement>(null);
+  const membersRef = useRef<HTMLDivElement>(null);
+  const templatesRef = useRef<HTMLDivElement>(null);
+  const notifsRef = useRef<HTMLDivElement>(null);
+  const userRef = useRef<HTMLDivElement>(null);
 
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,6 +125,58 @@ export default function AppLayout() {
     setShowUserDropdown(false);
     setShowSearchDropdown(false);
   };
+
+  // Close dropdowns on outside click or touch, and on Escape key
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent | TouchEvent | PointerEvent) => {
+      const target = e.target as Node;
+      if (showBoardsDropdown && boardRef.current && !boardRef.current.contains(target)) {
+        setShowBoardsDropdown(false);
+      }
+      if (showRecentDropdown && recentRef.current && !recentRef.current.contains(target)) {
+        setShowRecentDropdown(false);
+      }
+      if (showMembersDropdown && membersRef.current && !membersRef.current.contains(target)) {
+        setShowMembersDropdown(false);
+      }
+      if (showTemplatesDropdown && templatesRef.current && !templatesRef.current.contains(target)) {
+        setShowTemplatesDropdown(false);
+      }
+      if (showNotificationsPopover && notifsRef.current && !notifsRef.current.contains(target)) {
+        setShowNotificationsPopover(false);
+      }
+      if (showUserDropdown && userRef.current && !userRef.current.contains(target)) {
+        setShowUserDropdown(false);
+      }
+      if (showSearchDropdown && searchContainerRef.current && !searchContainerRef.current.contains(target)) {
+        setShowSearchDropdown(false);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        closeAllDropdowns();
+      }
+    };
+
+    document.addEventListener('pointerdown', handleOutsideClick);
+    document.addEventListener('touchstart', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    showBoardsDropdown,
+    showRecentDropdown,
+    showMembersDropdown,
+    showTemplatesDropdown,
+    showNotificationsPopover,
+    showUserDropdown,
+    showSearchDropdown,
+  ]);
 
   const toggleStar = (boardId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -181,7 +253,7 @@ export default function AppLayout() {
           </Link>
 
           {/* 2. Board dropdown */}
-          <div className="relative">
+          <div ref={boardRef} className="relative">
             <button 
               onClick={() => {
                 const next = !showBoardsDropdown;
@@ -241,7 +313,7 @@ export default function AppLayout() {
           </div>
 
           {/* 3. Recent dropdown */}
-          <div className="relative">
+          <div ref={recentRef} className="relative">
             <button 
               onClick={() => {
                 const next = !showRecentDropdown;
@@ -277,7 +349,7 @@ export default function AppLayout() {
           </div>
 
           {/* 4. Members dropdown */}
-          <div className="relative">
+          <div ref={membersRef} className="relative">
             <button
               onClick={() => {
                 const next = !showMembersDropdown;
@@ -335,7 +407,7 @@ export default function AppLayout() {
           </div>
 
           {/* 5. Templates dropdown */}
-          <div className="relative">
+          <div ref={templatesRef} className="relative">
             <button 
               onClick={() => {
                 const next = !showTemplatesDropdown;
@@ -350,17 +422,25 @@ export default function AppLayout() {
             </button>
 
             {showTemplatesDropdown && (
-              <div className="absolute left-0 mt-1.5 w-80 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
-                <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between">
+              <div className="absolute left-0 mt-1.5 w-84 max-w-[calc(100vw-1rem)] bg-white border border-gray-200 rounded-xl shadow-xl py-2 z-50 animate-in fade-in zoom-in-95">
+                <div className="px-3 py-1.5 text-[11px] font-bold text-gray-400 uppercase tracking-wider flex items-center justify-between border-b border-gray-100 pb-2">
                   <span>Available Templates</span>
-                  <span className="text-[10px] text-purple-600 font-semibold">Ready to Use</span>
+                  <button
+                    onClick={() => {
+                      closeAllDropdowns();
+                      setIsCreateTemplateModalOpen(true);
+                    }}
+                    className="text-purple-600 hover:text-purple-800 hover:underline flex items-center gap-1 text-[11px] font-bold cursor-pointer transition-colors"
+                  >
+                    <Plus size={12} /> Create Template
+                  </button>
                 </div>
-                <div className="divide-y divide-gray-100">
-                  {TEMPLATES.map(t => (
-                    <button
+                <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                  {templatesList.map(t => (
+                    <div
                       key={t.id}
                       onClick={() => openTemplateModal(t.id)}
-                      className="w-full text-left p-3 hover:bg-purple-50/60 transition-colors flex items-start gap-3 cursor-pointer group"
+                      className="w-full text-left p-3 hover:bg-purple-50/60 transition-colors flex items-start gap-3 cursor-pointer group relative"
                     >
                       <div 
                         className="w-12 h-10 rounded-lg shrink-0 border border-black/10 shadow-2xs relative overflow-hidden"
@@ -371,14 +451,41 @@ export default function AppLayout() {
                         }}
                       />
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between gap-1">
                           <span className="text-xs font-bold text-gray-900 group-hover:text-purple-700 truncate">{t.name}</span>
-                          <span className="text-[9px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.2 rounded-full uppercase">{t.badge}</span>
+                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full uppercase shrink-0 ${t.isCustom ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>
+                            {t.badge}
+                          </span>
                         </div>
                         <p className="text-[11px] text-gray-500 line-clamp-1 mt-0.5">{t.description}</p>
                       </div>
-                    </button>
+                      {t.isCustom && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteCustomTemplate(t.id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-600 p-1 rounded-md transition-all self-center shrink-0 cursor-pointer"
+                          title="Delete custom template"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   ))}
+                </div>
+                <div className="p-2 border-t border-gray-100 bg-gray-50/80 rounded-b-xl">
+                  <button
+                    onClick={() => {
+                      closeAllDropdowns();
+                      setIsCreateTemplateModalOpen(true);
+                    }}
+                    className="w-full py-2 px-3 bg-purple-50 hover:bg-purple-100 text-purple-700 hover:text-purple-800 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors border border-purple-200/80 shadow-2xs cursor-pointer"
+                  >
+                    <Plus size={14} className="text-purple-600" />
+                    <span>Create Custom Template</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -483,7 +590,7 @@ export default function AppLayout() {
           </div>
 
           {/* 9. Notification icon & Popover */}
-          <div className="relative">
+          <div ref={notifsRef} className="relative">
             <button 
               onClick={() => {
                 const next = !showNotificationsPopover;
@@ -542,7 +649,7 @@ export default function AppLayout() {
           </div>
 
           {/* 10. Avatar icon & portal user popup */}
-          <div className="relative">
+          <div ref={userRef} className="relative">
             <div 
               onClick={() => {
                 const next = !showUserDropdown;
@@ -572,7 +679,7 @@ export default function AppLayout() {
 
                 <div className="pt-2 mt-1">
                   <a 
-                    href="https://apps.evolvclothing.com/EVOL/"
+                    href="/EVOL/"
                     className="w-full mt-1 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg flex items-center justify-between transition-colors"
                   >
                     <span>Back to EVOL Portal</span>
@@ -604,6 +711,15 @@ export default function AppLayout() {
         initialTemplateId={createModalTemplateId}
         onCreated={() => {
           fetchData();
+        }}
+      />
+
+      {/* CREATE TEMPLATE MODAL */}
+      <CreateTemplateModal
+        isOpen={isCreateTemplateModalOpen}
+        onClose={() => setIsCreateTemplateModalOpen(false)}
+        onCreated={(newTpl) => {
+          openTemplateModal(newTpl.id);
         }}
       />
 

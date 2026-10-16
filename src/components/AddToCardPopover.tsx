@@ -1,8 +1,12 @@
+// AUTHOR : NANDHAKUMAR
+// LAST EDIT : 15/10/2026
+// DESC : Add To Card Popover Component
 import React from 'react';
-import { 
-  X, Tag, Clock, CheckSquare, User, Paperclip, MapPin, Sliders 
+import {
+  X, Tag, Clock, CheckSquare, User, Paperclip, MapPin, Sliders
 } from 'lucide-react';
 
+/* Define the props interface for the AddToCardPopover component */
 interface AddToCardPopoverProps {
   onSelectLabels: () => void;
   onSelectDates: () => void;
@@ -16,6 +20,7 @@ interface AddToCardPopoverProps {
   onClose: () => void;
 }
 
+/* Render the Add To Card Popover component */
 export const AddToCardPopover: React.FC<AddToCardPopoverProps> = ({
   onSelectLabels,
   onSelectDates,

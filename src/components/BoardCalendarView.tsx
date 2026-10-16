@@ -1,3 +1,6 @@
+// AUTHOR : NANDHAKUMAR
+// LAST EDIT :  15.10.2026
+// DESCRIPTION : Board Calendar View Component
 import React, { useState, useMemo } from 'react';
 import { 
   ChevronLeft, ChevronRight, Plus, Check, Clock, X

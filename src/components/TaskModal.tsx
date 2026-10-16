@@ -18,7 +18,8 @@ import { CustomFieldsSection, CustomFieldsData } from './CustomFieldsSection';
 import { LoadingSpinner } from './LoadingSpinner';
 import { CardAutomationPopover } from './CardAutomationPopover';
 import { CardPowerUpsPopover } from './CardPowerUpsPopover';
-import { Plug, Zap } from 'lucide-react';
+import { Plug, Zap, Shield } from 'lucide-react';
+import MemberAccessModal, { type AccessRole } from './MemberAccessModal';
 import { runCardButton, triggerBoardRulesForEvent } from '../utils/automationEngine';
 import { filterMembers, memberSubtitle, type PortalUser } from '../utils/members';
 
@@ -31,6 +32,8 @@ interface TaskModalProps {
   onTaskUpdated?: () => void;
   onOpenAutomationDirectory?: () => void;
   readOnly?: boolean;
+  allowDelete?: boolean;
+  allowCreate?: boolean;
 }
 
 export default function TaskModal({ 
@@ -39,10 +42,22 @@ export default function TaskModal({
   onClose, 
   onTaskUpdated,
   onOpenAutomationDirectory,
-  readOnly = false 
+  readOnly: readOnlyProp = false,
+  allowDelete = true,
+  allowCreate = true,
 }: TaskModalProps) {
   const [task, setTask] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const readOnly = readOnlyProp || task?.my_access === 'view';
+  const canDeleteThisCard = allowDelete && task?.my_permissions?.card_delete !== false;
+  const canCreateThisCard = allowCreate && task?.my_permissions?.card_create !== false;
+  const [imageCaption, setImageCaption] = useState<{ id: string; text: string } | null>(null);
+  const [savingCaption, setSavingCaption] = useState(false);
+  const [showCardAccess, setShowCardAccess] = useState(false);
+  const [cardAccessMap, setCardAccessMap] = useState<Record<string, AccessRole>>({});
+  const [cardAccessInherited, setCardAccessInherited] = useState(false);
+  const [cardAccessSaving, setCardAccessSaving] = useState(false);
+  const [cardAccessSaved, setCardAccessSaved] = useState(false);
 
   // Title & Description Editing
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -618,6 +633,11 @@ export default function TaskModal({
         ...prev,
         attachments: [data.attachment, ...(prev.attachments || [])]
       }));
+      const isImage = (file.type || data.attachment?.file_type || '').startsWith('image/')
+        || /\.(png|jpe?g|gif|webp|svg)$/i.test(file.name || data.attachment?.file_name || '');
+      if (isImage && data.attachment?.id != null) {
+        setImageCaption({ id: String(data.attachment.id), text: '' });
+      }
       onTaskUpdated?.();
       return data.attachment;
     } catch (err: any) {
@@ -626,6 +646,60 @@ export default function TaskModal({
       return null;
     } finally {
       setIsUploadingAttachment(false);
+    }
+  };
+
+  const saveImageCaption = async () => {
+    if (!imageCaption || !taskId) return;
+    try {
+      setSavingCaption(true);
+      const { data } = await api.patch(`/tasks/${taskId}/attachments/${imageCaption.id}`, { description: imageCaption.text });
+      setTask((prev: any) => ({
+        ...prev,
+        attachments: (prev.attachments || []).map((item: any) => String(item.id) === imageCaption.id ? { ...item, description: data.attachment?.description ?? imageCaption.text } : item)
+      }));
+      setImageCaption(null);
+    } catch (err) {
+      console.error('Failed to save image description', err);
+      alert('Could not save the image description.');
+    } finally {
+      setSavingCaption(false);
+    }
+  };
+
+  const openCardAccess = async () => {
+    if (!taskId) return;
+    try {
+      const { data } = await api.get(`/tasks/${taskId}/members`);
+      const map: Record<string, AccessRole> = {};
+      portalUsers.forEach(user => { map[String(user.id)] = 'none'; });
+      (data.members || []).forEach((member: any) => {
+        const role = String(member.role || '').toLowerCase();
+        map[String(member.user_id)] = role === 'view' || role === 'viewer' ? 'view' : 'edit';
+      });
+      setCardAccessMap(map);
+      setCardAccessInherited(!!data.inherited);
+      setCardAccessSaved(false);
+      setShowCardAccess(true);
+    } catch (err) {
+      console.error('Failed to load card access', err);
+      alert('Could not load member access for this card.');
+    }
+  };
+
+  const saveCardAccess = async () => {
+    if (!taskId) return;
+    try {
+      setCardAccessSaving(true);
+      const members = Object.entries(cardAccessMap).map(([userId, role]) => ({ userId, role }));
+      await api.put(`/tasks/${taskId}/members`, { members });
+      setCardAccessSaved(true);
+      setTimeout(() => setShowCardAccess(false), 600);
+    } catch (err) {
+      console.error('Failed to save card access', err);
+      alert('Failed to save card access. You need edit access to change it.');
+    } finally {
+      setCardAccessSaving(false);
     }
   };
 
@@ -1170,6 +1244,7 @@ export default function TaskModal({
                           <Layers size={14} className="text-blue-600" />
                           <span>{isTemplate ? 'Turn off Template' : 'Make this card a template'}</span>
                         </button>
+                        {canCreateThisCard && (
                         <button
                           type="button"
                           onClick={() => { setShowMoreMenu(false); handleCreateCardFromTemplate(); }}
@@ -1178,6 +1253,9 @@ export default function TaskModal({
                           <Copy size={14} className="text-gray-600" />
                           <span>Create card from template</span>
                         </button>
+                        )}
+                        {canDeleteThisCard && !readOnly && (
+                        <>
                         <div className="my-1 border-t border-gray-100"></div>
                         <button
                           type="button"
@@ -1187,6 +1265,8 @@ export default function TaskModal({
                           <Trash2 size={14} />
                           <span>Delete card</span>
                         </button>
+                        </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1278,6 +1358,7 @@ export default function TaskModal({
                           <Layers size={14} className="text-blue-600" />
                           <span>{isTemplate ? 'Turn off Template' : 'Make this card a template'}</span>
                         </button>
+                        {canCreateThisCard && (
                         <button
                           type="button"
                           onClick={() => { setShowMoreMenu(false); handleCreateCardFromTemplate(); }}
@@ -1286,6 +1367,9 @@ export default function TaskModal({
                           <Copy size={14} className="text-gray-600" />
                           <span>Create card from template</span>
                         </button>
+                        )}
+                        {canDeleteThisCard && !readOnly && (
+                        <>
                         <div className="my-1 border-t border-gray-100"></div>
                         <button
                           type="button"
@@ -1295,6 +1379,8 @@ export default function TaskModal({
                           <Trash2 size={14} />
                           <span>Delete card</span>
                         </button>
+                        </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1894,7 +1980,14 @@ export default function TaskModal({
                     ))}
                     
                     {!readOnly && (
-                      <div className="relative">
+                      <div className="relative flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={openCardAccess}
+                          className="h-7 px-3 rounded-full bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 flex items-center gap-1.5 text-xs font-bold transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Shield size={13} className="text-blue-600" /> Access
+                        </button>
                         <button 
                           type="button"
                           onClick={() => setShowMemberDropdown(!showMemberDropdown)}
@@ -2067,8 +2160,19 @@ export default function TaskModal({
                                 >
                                   {att.file_name}
                                 </a>
+                                {att.description && String(imageCaption?.id) !== String(att.id) && (
+                                  <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2">{att.description}</p>
+                                )}
                                 <div className="text-[11px] text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                                   <span>Added {timeAgo}</span>
+                                  {isImg && !readOnly && String(imageCaption?.id) !== String(att.id) && (
+                                    <>
+                                      <span>•</span>
+                                      <button type="button" onClick={() => setImageCaption({ id: String(att.id), text: att.description || '' })} className="text-blue-600 hover:underline cursor-pointer">
+                                        {att.description ? 'Edit description' : 'Add description'}
+                                      </button>
+                                    </>
+                                  )}
                                   <span>•</span>
                                   {isImg && (
                                     <button
@@ -2081,6 +2185,23 @@ export default function TaskModal({
                                     </button>
                                   )}
                                 </div>
+                                {imageCaption && String(imageCaption.id) === String(att.id) && (
+                                  <div className="mt-2 flex flex-col gap-1.5">
+                                    <textarea
+                                      autoFocus
+                                      value={imageCaption.text}
+                                      onChange={e => setImageCaption({ id: imageCaption.id, text: e.target.value })}
+                                      placeholder="Describe this image..."
+                                      className="w-full text-xs border border-blue-200 bg-blue-50/40 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-blue-500 min-h-[64px] resize-y"
+                                    />
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" disabled={savingCaption} onClick={saveImageCaption} className="px-2.5 py-1 rounded-md bg-blue-600 text-white text-[11px] font-bold cursor-pointer disabled:opacity-50">
+                                        {savingCaption ? 'Saving...' : 'Save description'}
+                                      </button>
+                                      <button type="button" onClick={() => setImageCaption(null)} className="px-2 py-1 text-[11px] text-gray-500 hover:text-gray-800 cursor-pointer">Cancel</button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
 
                               <div className="flex items-center gap-1 shrink-0 relative">
@@ -2668,6 +2789,28 @@ export default function TaskModal({
             </div>
           </div>
         </div>
+      )}
+
+      {showCardAccess && (
+        <MemberAccessModal
+          title="Card member access"
+          subjectName={task?.title || 'Card'}
+          hint="Only this card. Other cards and other boards stay unchanged. Who can change"
+          users={portalUsers}
+          accessMap={cardAccessMap}
+          canManage={!readOnly}
+          inherited={cardAccessInherited}
+          saving={cardAccessSaving}
+          saved={cardAccessSaved}
+          onChange={(userId, role) => setCardAccessMap(prev => ({ ...prev, [userId]: role }))}
+          onSetAll={role => setCardAccessMap(prev => {
+            const next = { ...prev };
+            portalUsers.forEach(user => { next[String(user.id)] = role; });
+            return next;
+          })}
+          onSave={saveCardAccess}
+          onClose={() => setShowCardAccess(false)}
+        />
       )}
     </div>
   );

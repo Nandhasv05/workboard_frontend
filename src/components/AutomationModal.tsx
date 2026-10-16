@@ -1,3 +1,6 @@
+// AUTHOR: NANDHAKUMAR S V
+// LAST EDIT : 15/10/2026
+// DESCRIPTION : Automation Modal Component
 import React, { useState } from 'react';
 import { 
   X, Zap, ChevronRight, Plus, Trash2, CheckCircle2, 
@@ -10,6 +13,7 @@ import {
   Award, Trophy, Crown, Pin, Sparkles, Ban, Scissors, UserPlus, UserMinus
 } from 'lucide-react';
 
+/* Define the interface for an Automation Rule */
 export interface AutomationRule {
   id: string;
   title: string;
@@ -27,6 +31,7 @@ export interface AutomationRule {
   runCount?: number;
 }
 
+/* Define the interface for the Automation Modal component */
 interface AutomationModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -61,6 +66,7 @@ type ActionCategory =
   | 'jira'
   | 'slack';
 
+/******** Array of available card icons *********/
 const AVAILABLE_CARD_ICONS = [
   { name: 'Settings', icon: Settings },
   { name: 'Bot', icon: Bot },
@@ -99,6 +105,7 @@ const AVAILABLE_CARD_ICONS = [
   { name: 'Layers', icon: Layers }
 ];
 
+/******** Automation Modal Component *********/  
 export const AutomationModal: React.FC<AutomationModalProps> = ({
   isOpen,
   onClose,
